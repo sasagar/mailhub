@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+
+# Vite+ の推奨: vite を Vite+ のコアに揃え、プラグイン（@cloudflare/vite-plugin）も同じものを使わせる
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vitest: 5.0.1

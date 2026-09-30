@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+.dev.vars
+.wrangler/
+# 個人の作業メモ（アカウントやインフラの詳細を含むので公開しない）
+docs/handoff.md

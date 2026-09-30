@@ -1,0 +1,8 @@
+# cp .dev.vars.example .dev.vars して値を入れる（.dev.vars は git 管理外）
+ACCESS_CLIENT_ID=
+ACCESS_CLIENT_SECRET=
+ACCESS_TOKEN_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/token
+ACCESS_AUTHORIZATION_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/authorization
+ACCESS_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/jwks
+ALLOWED_EMAILS=
+MCP_RESOURCE=http://localhost:8788/mcp

@@ -1,0 +1,15 @@
+# ローカル開発用。本番は deploy/（k3s ＋ 既存の Postgres）
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: mailhub
+      POSTGRES_PASSWORD: mailhub
+      POSTGRES_DB: mailhub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - '127.0.0.1:5432:5432'
+
+volumes:
+  pgdata:

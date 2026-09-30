@@ -1,0 +1,40 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mailhub-mcp",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      // 本番の Hyperdrive（同期デーモンと同じ Postgres に Tunnel 経由で）を作ったら差し替える
+      "id": "00000000000000000000000000000000",
+      // ローカル開発はリポジトリ直下の docker compose の Postgres
+      "localConnectionString": "postgres://mailhub:mailhub@localhost:5432/mailhub",
+    },
+  ],
+  "kv_namespaces": [
+    {
+      // OAuth のクライアント登録・グラント・同意途中の状態（namespace 名: mailhub-oauth）
+      "binding": "OAUTH_KV",
+      "id": "f919439ddab44b48aecea8c16e3cdf2b",
+    },
+  ],
+  "vars": {
+    // この MCP サーバーの正式な URL（トークンの宛先）。ローカルは .dev.vars で上書きする
+    "MCP_RESOURCE": "https://mailhub.bktsk.com/mcp",
+  },
+  // 次は wrangler secret put で入れる（ローカルは .dev.vars）。
+  // ALLOWED_EMAILS: Access のポリシーに加えて Worker 側でも許可するアドレス（カンマ区切り）。空なら誰も通さない
+  "secrets": {
+    "required": [
+      "ACCESS_CLIENT_ID",
+      "ACCESS_CLIENT_SECRET",
+      "ACCESS_TOKEN_URL",
+      "ACCESS_AUTHORIZATION_URL",
+      "ACCESS_JWKS_URL",
+      "ALLOWED_EMAILS",
+    ],
+  },
+  "observability": { "enabled": true },
+}

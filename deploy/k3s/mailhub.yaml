@@ -1,0 +1,66 @@
+# 適用: samurai-watch で kubectl apply -f（Secret は別途 README の手順で作る）
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mailhub
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailhub-sync
+  namespace: mailhub
+  annotations:
+    keel.sh/policy: force
+    keel.sh/matchTag: 'true'
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: '@every 3m'
+spec:
+  # 同じアカウントに二重接続させないため、必ず 1 つだけ。更新時も旧 Pod を止めてから起動する
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailhub-sync
+  template:
+    metadata:
+      labels:
+        app: mailhub-sync
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: sakura
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: sync
+          image: ghcr.io/sasagar/mailhub-sync:latest
+          env:
+            # ノード上で動いている Postgres へノード IP で繋ぐ
+            - name: PGHOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: PGDATABASE
+              value: mailhub
+            - name: PGUSER
+              value: mailhub
+          envFrom:
+            - secretRef:
+                name: mailhub-secret # PGPASSWORD, MAILHUB_MASTER_KEY
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 384Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

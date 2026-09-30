@@ -1,0 +1,21 @@
+{
+  "name": "mailhub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "vp check",
+    "fix": "vp check --fix",
+    "test": "vp test",
+    "migrate": "pnpm --filter @mailhub/sync migrate",
+    "sync": "pnpm --filter @mailhub/sync start",
+    "account:add": "pnpm --filter @mailhub/sync account:add",
+    "verify": "pnpm --filter @mailhub/sync verify",
+    "archive": "pnpm --filter @mailhub/sync archive"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "typescript": "^7.0.2",
+    "vite-plus": "^1.0.0"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

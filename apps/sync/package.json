@@ -1,0 +1,21 @@
+{
+  "name": "@mailhub/sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "migrate": "tsx --env-file-if-exists=../../.env src/cli/migrate.ts",
+    "account:add": "tsx --env-file-if-exists=../../.env src/cli/add-account.ts",
+    "verify": "tsx --env-file-if-exists=../../.env src/cli/verify.ts",
+    "archive": "tsx --env-file-if-exists=../../.env src/cli/archive.ts"
+  },
+  "dependencies": {
+    "@mailhub/db": "workspace:*",
+    "imapflow": "^2.1.2",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^24"
+  }
+}

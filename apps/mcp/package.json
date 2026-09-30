@@ -1,0 +1,25 @@
+{
+  "name": "@mailhub/mcp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "deploy": "vp build && wrangler deploy",
+    "types": "wrangler types env.d.ts --include-runtime false"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.1",
+    "@mailhub/db": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.24.0",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.62.3",
+    "@cloudflare/workers-types": "^5.20260930.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@^1.0.0",
+    "vite-plus": "^1.0.0",
+    "wrangler": "^4.145.0"
+  }
+}

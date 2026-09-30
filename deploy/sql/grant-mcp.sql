@@ -1,0 +1,15 @@
+-- MCP の Worker（Hyperdrive）用ロール mailhub_mcp に、必要な分だけ権限を付ける。
+-- マイグレーションでテーブルが増えたら、もう一度流す（何度流しても同じ結果になる）。
+--   psql -d mailhub -f deploy/sql/grant-mcp.sql
+--
+-- 方針: 読めるのは一覧に要るものだけ。accounts の secret（暗号化済みのアプリパスワード）は列ごと読めなくする。
+-- 書けるのは operations への追加だけ（実行は同期デーモン）。Worker が乗っ取られても暗号文すら取れない。
+
+revoke all on all tables in schema public from mailhub_mcp;
+revoke all on all sequences in schema public from mailhub_mcp;
+grant usage on schema public to mailhub_mcp;
+
+grant select (id, label, email, provider, enabled) on accounts to mailhub_mcp;
+grant select on mailboxes, messages to mailhub_mcp;
+grant select, insert on operations to mailhub_mcp;
+grant usage on sequence operations_id_seq to mailhub_mcp;
