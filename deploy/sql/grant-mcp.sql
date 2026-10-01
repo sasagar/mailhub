@@ -13,3 +13,7 @@ grant select (id, label, email, provider, enabled) on accounts to mailhub_mcp;
 grant select on mailboxes, messages to mailhub_mcp;
 grant select, insert on operations to mailhub_mcp;
 grant usage on sequence operations_id_seq to mailhub_mcp;
+
+-- 検索の依頼を積み、結果を読む（実行は同期デーモン）
+grant select, insert on search_requests to mailhub_mcp;
+grant usage on sequence search_requests_id_seq to mailhub_mcp;

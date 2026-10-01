@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api, completeLoginIfReturning, isLoggedIn, LoggedOut, login } from './auth.ts'
 import { avatarHue, initial, n, senderName, when } from './format.ts'
-import type { Message, MessagePage, Overview, Sender } from './types.ts'
+import type { Message, MessagePage, Overview, SearchResult, Sender } from './types.ts'
 import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
 
-type View = 'senders' | 'timeline'
+type View = 'senders' | 'timeline' | 'search'
 
 export function App() {
   const [phase, setPhase] = useState<'starting' | 'out' | 'in'>('starting')
@@ -100,6 +100,9 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
             <button role="tab" aria-selected={view === 'timeline'} onClick={() => setView('timeline')}>
               新しい順
             </button>
+            <button role="tab" aria-selected={view === 'search'} onClick={() => setView('search')}>
+              検索
+            </button>
           </div>
           {accounts.length > 1 && (
             <select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="アカウント">
@@ -120,11 +123,13 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
         </p>
       )}
 
-      {view === 'senders' ? (
+      {view === 'senders' && (
         <Senders senders={senders} account={account} canTriage={canTriage} archive={archive} onError={guard} />
-      ) : (
+      )}
+      {view === 'timeline' && (
         <Timeline account={account} canTriage={canTriage} archive={archive} version={version} onError={guard} />
       )}
+      {view === 'search' && <Search account={account} canTriage={canTriage} archive={archive} onError={guard} />}
 
       <Activity jobs={jobs} now={now} onDismiss={dismiss} />
     </div>
@@ -542,6 +547,165 @@ function Timeline(props: {
           </button>
           <button className="primary" disabled={busy} onClick={() => void run(true)}>
             {busy ? '処理中' : '既読にしてアーカイブ'}
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+// すべてのメールをメールサーバー側で検索する（Gmail は Gmail の検索式、本文も対象）
+function Search(props: { account: string; canTriage: boolean; archive: ArchiveFn; onError: (err: unknown) => void }) {
+  const [query, setQuery] = useState('')
+  const [result, setResult] = useState<SearchResult | null>(null)
+  const [searching, setSearching] = useState<{ query: string; started: number } | null>(null)
+  const [now, setNow] = useState(Date.now())
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!searching) return
+    const t = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(t)
+  }, [searching])
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q) return
+    setSearching({ query: q, started: Date.now() })
+    setNow(Date.now())
+    setError(null)
+    setSelected(new Set())
+    try {
+      const params = new URLSearchParams({ q, limit: '50' })
+      if (props.account) params.set('account', props.account)
+      setResult(await api<SearchResult>(`/mcp/api/search?${params}`))
+    } catch (err) {
+      if (err instanceof LoggedOut) props.onError(err)
+      else setError((err as Error).message)
+    } finally {
+      setSearching(null)
+    }
+  }
+
+  const toggle = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const run = async (markRead: boolean) => {
+    const ids = [...selected]
+    setSelected(new Set())
+    await props.archive({ message_ids: ids, mark_read: markRead }, `検索結果の ${ids.length} 通`)
+    // 受信トレイから外れたことを結果にも反映する
+    setResult((r) =>
+      r
+        ? {
+            ...r,
+            hits: r.hits.map((h) =>
+              h.messageId && ids.includes(h.messageId) ? { ...h, inInbox: false, messageId: null } : h,
+            ),
+          }
+        : r,
+    )
+  }
+
+  const matched = result?.totals.reduce((sum, t) => sum + (t.matched ?? 0), 0) ?? 0
+  const failed = result?.totals.filter((t) => t.error) ?? []
+
+  return (
+    <>
+      <form className="search-form" onSubmit={(e) => void submit(e)} role="search">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="from:amazon.co.jp after:2024/01/01 など"
+          aria-label="検索語"
+          enterKeyHint="search"
+        />
+        <button className="primary" disabled={!query.trim() || searching != null}>
+          検索
+        </button>
+      </form>
+      <p className="hint search-hint">
+        アーカイブ済みも含むすべてのメールを、本文まで探します。Gmail は Gmail と同じ検索式が使えます。
+      </p>
+
+      {searching && (
+        <p className="notice searching">
+          <span className="spinner" aria-hidden="true" />「{searching.query}」をメールサーバーで検索中・
+          {Math.round((now - searching.started) / 1000)} 秒
+        </p>
+      )}
+      {error && <p className="notice error">{error}</p>}
+      {!searching && result && (
+        <>
+          <p className="result-summary">
+            {n(matched)} 件見つかりました
+            {matched > result.hits.length && `（新しい ${n(result.hits.length)} 件を表示）`}
+            {failed.length > 0 && (
+              <span className="error">。{failed.map((f) => f.account).join('、')} は検索できませんでした</span>
+            )}
+          </p>
+          {result.hits.length > 0 && (
+            <ol className="timeline">
+              {result.hits.map((h, i) => {
+                const selectable = props.canTriage && h.messageId != null
+                const body = (
+                  <>
+                    <Avatar
+                      name={senderName(h.from)}
+                      seed={h.from?.address ?? ''}
+                      checked={h.messageId != null && selected.has(h.messageId)}
+                    />
+                    <span className="line">
+                      <span className="who">{senderName(h.from)}</span>
+                      <time dateTime={h.receivedAt ?? undefined}>{when(h.receivedAt)}</time>
+                    </span>
+                    <span className="subject">
+                      {h.inInbox && <span className="badge">受信トレイ</span>}
+                      {h.subject || '（件名なし）'}
+                    </span>
+                  </>
+                )
+                return (
+                  <li key={`${h.account}:${h.gmThreadId}:${i}`} className={h.unread ? 'is-unread' : ''}>
+                    {selectable ? (
+                      <label>
+                        <input
+                          className="visually-hidden"
+                          type="checkbox"
+                          checked={selected.has(h.messageId!)}
+                          onChange={() => toggle(h.messageId!)}
+                          aria-label={`${senderName(h.from)}「${h.subject ?? ''}」を選ぶ`}
+                        />
+                        {body}
+                      </label>
+                    ) : (
+                      <div className="row">{body}</div>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </>
+      )}
+      {selected.size > 0 && (
+        <div className="selection-bar">
+          <span>
+            <b>{n(selected.size)}</b> 通を選択中
+          </span>
+          <button className="quiet" onClick={() => void run(false)}>
+            アーカイブ
+          </button>
+          <button className="primary" onClick={() => void run(true)}>
+            既読にしてアーカイブ
           </button>
         </div>
       )}

@@ -1,5 +1,5 @@
 // 開発サーバーで ?demo を付けたときだけ使う見本データ。デザインの確認用で、本番のビルドには入らない
-import type { Message, MessagePage, Operation, Overview, Queued, Sender } from './types.ts'
+import type { Message, MessagePage, Operation, Overview, Queued, SearchResult, Sender } from './types.ts'
 
 const NAMES: [string, string, number, number][] = [
   ['＠IT通信 Special', 'atmarkit-mail@noreply.itmedia.co.jp', 176, 175],
@@ -100,6 +100,26 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
     ops.set(id, { started: Date.now(), count, senders: targets })
     const q: Queued = { operations: [{ operationId: id, account: 'me@example.com', count }], notFound: [] }
     return q as T
+  }
+  if (tail === 'search') {
+    // 本物は数秒かかるので、待ち時間の表示も確かめられるようにする
+    await new Promise((r) => setTimeout(r, 2500))
+    const q = url.searchParams.get('q') ?? ''
+    const hits = messagesOf()
+      .slice(0, 12)
+      .map((m, i) => ({
+        account: m.account,
+        mailbox: '[Gmail]/すべてのメール',
+        subject: `${m.subject}（${q}）`,
+        from: m.from,
+        receivedAt: new Date(Date.now() - i * 86_400_000 * 40).toISOString(),
+        unread: i % 4 === 0,
+        inInbox: i < 3,
+        messageId: i < 3 ? m.id : null,
+        gmThreadId: String(i),
+      }))
+    const r: SearchResult = { hits, totals: [{ account: 'me@example.com', matched: 1284, error: null }] }
+    return r as T
   }
   if (tail === 'operations') {
     const list = (url.searchParams.get('ids') ?? '').split(',').map((id): Operation => {

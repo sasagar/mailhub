@@ -18,3 +18,18 @@ export type Operation = {
   result: { moved?: number } | null
   error: string | null
 }
+export type SearchHit = {
+  account: string
+  mailbox: string
+  subject: string | null
+  from: { name: string | null; address: string | null } | null
+  receivedAt: string | null
+  unread: boolean
+  inInbox: boolean
+  messageId: string | null
+  gmThreadId: string | null
+}
+export type SearchResult = {
+  hits: SearchHit[]
+  totals: { account: string; matched: number | null; error: string | null }[]
+}

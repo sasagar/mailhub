@@ -178,3 +178,45 @@ export async function enqueueArchiveBySenders(
     requestedBy: opts.requestedBy,
   })
 }
+
+export type SearchHit = {
+  account: string
+  mailbox: string
+  subject: string | null
+  from: { name: string | null; address: string | null } | null
+  receivedAt: string | null
+  unread: boolean
+  inInbox: boolean
+  messageId: string | null
+  gmThreadId: string | null
+}
+
+export type SearchResult = {
+  hits: SearchHit[]
+  totals: { account: string; matched: number | null; error: string | null }[]
+}
+
+// メールサーバー側で検索する。Worker は IMAP に繋がらないので、依頼を積んで同期デーモンの結果を待つ
+export async function searchMail(
+  sql: Sql,
+  opts: { query: string; account?: string; maxResults: number; requestedBy: string },
+): Promise<SearchResult> {
+  let accountId: number | null = null
+  if (opts.account) {
+    const [a] = await sql`select id from accounts where email = ${opts.account} and enabled`
+    if (!a) throw new Error(`アカウント ${opts.account} はありません`)
+    accountId = a.id
+  }
+  const [req] = await sql`
+    insert into search_requests (account_id, query, max_results, requested_by)
+    values (${accountId}, ${opts.query}, ${opts.maxResults}, ${opts.requestedBy})
+    returning id`
+  const deadline = Date.now() + 25_000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 400))
+    const [row] = await sql`select status, results, error from search_requests where id = ${req!.id}`
+    if (row?.status === 'done') return row.results as SearchResult
+    if (row?.status === 'failed') throw new Error(`検索に失敗しました: ${row.error}`)
+  }
+  throw new Error('検索が 25 秒以内に終わりませんでした。条件を絞ってもう一度試してください')
+}

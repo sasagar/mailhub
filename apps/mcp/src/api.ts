@@ -7,6 +7,7 @@ import {
   enqueueArchiveBySenders,
   getOperations,
   inboxOverview,
+  searchMail,
   listMessages,
   senderSummary,
 } from './queries.ts'
@@ -66,6 +67,19 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
         unreadOnly: q.get('unread') === '1',
         limit: Math.min(Number(q.get('limit') ?? 50) || 50, 200),
         offset: Math.max(Number(q.get('offset') ?? 0) || 0, 0),
+      }),
+    )
+  }
+  if (request.method === 'GET' && url.pathname === `${API_PREFIX}search`) {
+    need('mail.read')
+    const query = (q.get('q') ?? '').trim()
+    if (!query || query.length > 500) throw new HttpError(400, '検索語を 1〜500 文字で指定してください')
+    return json(
+      await searchMail(sql, {
+        query,
+        account: q.get('account') ?? undefined,
+        maxResults: Math.min(Number(q.get('limit') ?? 50) || 50, 200),
+        requestedBy: `web:${props.clientName}`,
       }),
     )
   }

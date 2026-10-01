@@ -12,6 +12,7 @@ import {
   getOperations,
   inboxOverview,
   listMessages,
+  searchMail,
   senderSummary,
 } from './queries.ts'
 import { SCOPES, type Props, type Scope } from './scopes.ts'
@@ -89,6 +90,34 @@ function createServer(sql: Sql, props: Props) {
       async (a) => {
         requireScope('mail.read')
         return json(await senderSummary(sql, { account: a.account, limit: a.limit }))
+      },
+    )
+
+    server.registerTool(
+      'search_mail',
+      {
+        description:
+          '受信トレイだけでなく、アーカイブ済みを含むすべてのメールをメールサーバー側で検索する（本文も対象）。新しい順に返す。' +
+          'Gmail のアカウントは Gmail の検索式がそのまま使える（例: from:amazon.co.jp after:2024/01/01 has:attachment、' +
+          'subject:請求書、"完全一致の語句"、label:xxx、in:sent）。Gmail 以外は語句が件名・差出人・本文のどれかに含まれるものを探す。' +
+          '1 回に数秒かかる。結果の messageId が null でないものは受信トレイにあり、archive_messages にそのまま渡せる。',
+        inputSchema: {
+          query: z.string().min(1).max(500).describe('検索語。Gmail なら Gmail の検索式'),
+          account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
+          max_results: z.number().int().min(1).max(200).default(30),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async (a) => {
+        requireScope('mail.read')
+        return json(
+          await searchMail(sql, {
+            query: a.query,
+            account: a.account,
+            maxResults: a.max_results,
+            requestedBy: `mcp:${props.clientName}`,
+          }),
+        )
       },
     )
 
