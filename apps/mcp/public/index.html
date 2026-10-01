@@ -10,9 +10,6 @@
     />
     <link rel="stylesheet" href="/page.css" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- ホーム画面から開いたとき・ログイン済みのときはアプリへ移る（以前の PWA の起動 URL が / のため） -->
-    <script src="/landing.js"></script>
   </head>
   <body>
     <main>
@@ -22,8 +19,8 @@
       <div class="card">
         <h2>What mailhub does</h2>
         <p>
-          mailhub is a private application built and used only by its author (Kiyoshi Sasagawa) to manage his own email
-          accounts. It is not offered to the public.
+          mailhub is a self-hosted email application built by Kiyoshi Sasagawa for managing his own email accounts. It
+          runs on the author's own server and is used by the author.
         </p>
         <ul>
           <li>
@@ -41,7 +38,7 @@
           mailhub connects to Gmail over IMAP using OAuth with the scope <code>https://mail.google.com/</code>, only
           after the author grants access with his own Google Account. It reads message headers and flags to build the
           inbox view, reads a message body when the author opens it, and moves or flags messages only when the author
-          asks for it. See the <a href="/privacy">privacy policy</a> for details.
+          asks for it. See the <a href="https://mailhub.bktsk.com/privacy">privacy policy</a> for details.
         </p>
       </div>
 
@@ -51,11 +48,10 @@
         か所で整理するための個人用アプリです。受信トレイを差出人ごとにまとめて一括でアーカイブ・既読にし、アーカイブ済みを含むメールの検索と閲覧ができます。一般には提供していません。
       </p>
 
-      <p><a class="open-app" href="/app/">Open mailhub (author only)</a></p>
-
       <footer>
-        <a href="/privacy">Privacy policy</a>
+        <a href="https://mailhub.bktsk.com/privacy">Privacy policy</a>
         <a href="https://github.com/sasagar/mailhub">Source code</a>
+        <a href="/app/" rel="nofollow">Sign in (author)</a>
       </footer>
     </main>
   </body>
