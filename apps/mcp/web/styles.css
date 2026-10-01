@@ -1158,3 +1158,12 @@ html.sheet-open body {
     animation: none;
   }
 }
+.signin-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+}
+.signin-links a {
+  color: var(--ai);
+}

@@ -31,7 +31,14 @@ function SignIn({ error }: { error: string | null }) {
   return (
     <main className="signin">
       <h1>mailhub</h1>
-      <p>受信トレイを差出人ごとにまとめて片付けます。</p>
+      <p>
+        複数のメールアカウントを 1
+        か所で整理する、作者個人用のツールです。受信トレイを差出人ごとにまとめて片付け、メールを検索・閲覧できます。
+      </p>
+      <p className="signin-links">
+        <a href="/about">mailhub について（About）</a>
+        <a href="/privacy">プライバシーポリシー（Privacy）</a>
+      </p>
       {error && <p className="signin-error">{error}</p>}
       <button className="primary" onClick={() => void login()}>
         ログイン

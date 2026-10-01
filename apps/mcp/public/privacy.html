@@ -1,53 +1,104 @@
 <!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>プライバシーポリシー | mailhub</title>
-<link rel="stylesheet" href="/page.css">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-</head>
-<body>
-<main>
-  <h1>プライバシーポリシー</h1>
-  <p class="lead">最終更新日: 2026 年 10 月 1 日</p>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — mailhub</title>
+    <link rel="stylesheet" href="/page.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="lead">mailhub — last updated October 1, 2026</p>
 
-  <h2>対象</h2>
-  <p>mailhub（以下「本アプリ」）は、作者本人が自分のメールアカウントを整理するための個人用アプリケーションです。本アプリを利用できるのは作者本人のみで、第三者には提供していません。</p>
+      <h2>1. Who this applies to</h2>
+      <p>
+        mailhub ("the app") is a personal application operated by its author, Kiyoshi Sasagawa, for managing his own
+        email accounts. The only user of the app is the author. The app is not offered to other people.
+      </p>
 
-  <h2>取得する情報</h2>
-  <p>本アプリは、作者本人が許可したメールアカウント（Google アカウントを含む）に IMAP / SMTP で接続し、次の情報を扱います。</p>
-  <ul>
-    <li>メールの件名・差出人・宛先・日時・フラグ（既読など）・ラベル</li>
-    <li>作者が開いたメールの本文と添付ファイルの情報</li>
-    <li>接続のための認証情報（アプリパスワード、または OAuth の更新用トークン）</li>
-  </ul>
+      <h2>2. Google user data the app accesses</h2>
+      <p>
+        With the author's consent, the app requests the Google OAuth scope <code>https://mail.google.com/</code> to
+        access the author's Gmail mailbox over IMAP and SMTP. Through this access the app handles:
+      </p>
+      <ul>
+        <li>
+          Message metadata: subject, sender, recipients, date, size, flags (such as read/unread), Gmail labels and
+          thread IDs.
+        </li>
+        <li>
+          Message content: the body and the list of attachments of a message, only when the author opens or searches for
+          it.
+        </li>
+        <li>OAuth tokens needed to connect to Gmail on the author's behalf.</li>
+      </ul>
+      <p>The app does not access Google Contacts, Google Drive, Calendar or any other Google service.</p>
 
-  <h2>利用目的</h2>
-  <p>取得した情報は、作者本人がメールを一覧・検索・閲覧・整理（アーカイブ・既読など）・送信するためだけに使います。広告、プロファイリング、販売、機械学習モデルの学習には使いません。</p>
+      <h2>3. How the data is used</h2>
+      <ul>
+        <li>To show the author his inbox, grouped by sender and sorted by date.</li>
+        <li>To search and display messages the author asks for.</li>
+        <li>To archive messages, mark them as read, or send mail, only when the author asks for it.</li>
+      </ul>
+      <p>The data is not used for advertising, profiling, selling, or training machine-learning models.</p>
 
-  <h2>保存と保護</h2>
-  <ul>
-    <li>情報は作者が管理するサーバー（データベース）に保存します。本文の一時保存は 7 日で削除します。</li>
-    <li>認証情報は AES-256-GCM で暗号化して保存し、復号の鍵はデータベースとは別の場所に置きます。</li>
-    <li>本アプリへのアクセスは、作者本人の認証（Cloudflare Access）を通った場合のみ許可します。</li>
-  </ul>
+      <h2>4. Storage and retention</h2>
+      <ul>
+        <li>
+          Message metadata of the inbox is stored in a database on a server the author controls, and is removed when the
+          message leaves the inbox.
+        </li>
+        <li>Message bodies that the author opens are cached for up to 7 days and then deleted.</li>
+        <li>
+          OAuth tokens and passwords are encrypted with AES-256-GCM. The encryption key is kept separately from the
+          database.
+        </li>
+        <li>Access to the app requires the author's own authentication through Cloudflare Access.</li>
+      </ul>
 
-  <h2>第三者への提供</h2>
-  <p>取得した情報を第三者に販売・提供することはありません。作者本人が許可した AI アシスタントに対しては、作者の指示に応じて必要な範囲の情報を渡すことがあります。</p>
+      <h2>5. Sharing</h2>
+      <p>
+        The app does not sell, rent or share Google user data with third parties. When the author instructs his own AI
+        assistant through the app, the app returns to that assistant only the information needed to carry out the
+        author's request.
+      </p>
 
-  <h2>Google ユーザーデータの扱い</h2>
-  <p>本アプリによる Google API から取得した情報の利用と他のアプリへの転送は、<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API サービスのユーザーデータに関するポリシー</a>（限定使用の要件を含む）に従います。</p>
+      <h2>6. Limited Use disclosure</h2>
+      <p>
+        mailhub's use and transfer to any other app of information received from Google APIs will adhere to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy"
+          >Google API Services User Data Policy</a
+        >, including the Limited Use requirements.
+      </p>
 
-  <h2>削除</h2>
-  <p>アカウントの連携を解除すると、そのアカウントの情報と認証情報を削除します。Google アカウントの<a href="https://myaccount.google.com/permissions">サードパーティ アクセスの管理</a>から、いつでもアクセスを取り消せます。</p>
+      <h2>7. Deleting data and revoking access</h2>
+      <p>
+        When an account is removed from the app, its stored data and credentials are deleted. Access can be revoked at
+        any time from
+        <a href="https://myaccount.google.com/permissions">Google Account → Third-party apps &amp; services</a>; after
+        that the app can no longer access the mailbox.
+      </p>
 
-  <h2>お問い合わせ</h2>
-  <p><a href="https://github.com/sasagar/mailhub/issues">GitHub の Issues</a> からご連絡ください。</p>
+      <h2>8. Contact</h2>
+      <p>
+        Questions about this policy can be sent through
+        <a href="https://github.com/sasagar/mailhub/issues">GitHub Issues</a>.
+      </p>
 
-  <footer>
-    <a href="/about">mailhub について</a>
-  </footer>
-</main>
-</body>
+      <h2 lang="ja">日本語の要約</h2>
+      <p lang="ja">
+        mailhub は作者本人だけが使う個人用アプリです。本人の許可を得て Gmail（スコープ
+        <code>https://mail.google.com/</code
+        >）にアクセスし、受信トレイの一覧・検索・閲覧・整理（アーカイブ・既読）・送信のためだけにメールの情報を使います。広告・販売・機械学習には使わず、第三者に提供しません。本文の一時保存は
+        7 日で削除し、認証情報は暗号化して保存します。Google API から得た情報の利用は、限定使用の要件を含む Google API
+        サービスのユーザーデータに関するポリシーに従います。
+      </p>
+
+      <footer>
+        <a href="/about">About mailhub</a>
+      </footer>
+    </main>
+  </body>
 </html>

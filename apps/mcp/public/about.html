@@ -1,29 +1,57 @@
 <!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mailhub について</title>
-<link rel="stylesheet" href="/page.css">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-</head>
-<body>
-<main>
-  <h1>mailhub</h1>
-  <p class="lead">複数のメールアカウントを 1 か所で整理するための、個人用のメールツールです。</p>
-  <div class="card">
-    <p>mailhub は、作者本人が自分のメールアカウント（Gmail など）を整理するために作った個人用のアプリケーションです。一般には提供していません。</p>
-    <ul>
-      <li>受信トレイを差出人ごとにまとめ、不要なメールを一括でアーカイブ・既読にする</li>
-      <li>アーカイブ済みを含むメールの検索と閲覧</li>
-      <li>作者が許可した AI アシスタントから、同じ操作を行えるようにする</li>
-    </ul>
-    <p>Gmail には、作者本人の Google アカウントで許可した場合にのみ、IMAP を通じてアクセスします。</p>
-  </div>
-  <footer>
-    <a href="/privacy">プライバシーポリシー</a>
-    <a href="https://github.com/sasagar/mailhub">ソースコード</a>
-  </footer>
-</main>
-</body>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mailhub — personal email triage tool</title>
+    <meta
+      name="description"
+      content="mailhub is a personal tool that lets its owner triage several email accounts (including Gmail) in one place: group the inbox by sender, archive in bulk, search and read mail."
+    />
+    <link rel="stylesheet" href="/page.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <main>
+      <h1>mailhub</h1>
+      <p class="lead">A personal tool for triaging several email accounts, including Gmail, in one place.</p>
+
+      <div class="card">
+        <h2>What mailhub does</h2>
+        <p>
+          mailhub is a private application built and used only by its author (Kiyoshi Sasagawa) to manage his own email
+          accounts. It is not offered to the public.
+        </p>
+        <ul>
+          <li>
+            Shows the inbox grouped by sender, so that newsletters and notifications can be archived or marked as read
+            in bulk.
+          </li>
+          <li>Searches all mail, including archived messages, and displays a message when it is opened.</li>
+          <li>
+            Lets the author's own AI assistant perform the same triage actions on his behalf, with his permission.
+          </li>
+        </ul>
+
+        <h2>How mailhub uses Gmail</h2>
+        <p>
+          mailhub connects to Gmail over IMAP using OAuth with the scope <code>https://mail.google.com/</code>, only
+          after the author grants access with his own Google Account. It reads message headers and flags to build the
+          inbox view, reads a message body when the author opens it, and moves or flags messages only when the author
+          asks for it. See the <a href="/privacy">privacy policy</a> for details.
+        </p>
+      </div>
+
+      <h2 lang="ja">mailhub について</h2>
+      <p lang="ja">
+        mailhub は、作者本人が自分の複数のメールアカウント（Gmail を含む）を 1
+        か所で整理するための個人用アプリです。受信トレイを差出人ごとにまとめて一括でアーカイブ・既読にし、アーカイブ済みを含むメールの検索と閲覧ができます。一般には提供していません。
+      </p>
+
+      <footer>
+        <a href="/privacy">Privacy policy</a>
+        <a href="https://github.com/sasagar/mailhub">Source code</a>
+      </footer>
+    </main>
+  </body>
 </html>
