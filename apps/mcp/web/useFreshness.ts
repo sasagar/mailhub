@@ -9,7 +9,7 @@ async function hasNewVersion(): Promise<boolean> {
   const mine = currentScript()
   if (!mine) return false
   try {
-    const html = await (await fetch('/', { cache: 'no-store' })).text()
+    const html = await (await fetch('/app/', { cache: 'no-store' })).text()
     const latest = /<script[^>]+type="module"[^>]+src="([^"]*\/assets\/[^"]+)"/.exec(html)?.[1]
     return latest != null && latest !== mine
   } catch {

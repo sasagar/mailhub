@@ -4,7 +4,14 @@ const STORE = 'mailhub.auth'
 const PENDING = 'mailhub.auth.pending'
 const SCOPE = 'mail.read mail.triage'
 
-type Stored = { clientId?: string; accessToken?: string; refreshToken?: string; expiresAt?: number }
+type Stored = {
+  clientId?: string
+  // 登録したときの戻り先。変わったら（アプリを / から /app/ に移したときなど）登録し直す
+  redirectUri?: string
+  accessToken?: string
+  refreshToken?: string
+  expiresAt?: number
+}
 type TokenResponse = { access_token: string; refresh_token?: string; expires_in?: number }
 
 // ストレージは使えないこと（プライベートブラウズ等）があるので、失敗しても動くようにする
@@ -31,7 +38,7 @@ const save = (next: Stored) => {
   write(localStorage, STORE, next)
 }
 
-const redirectUri = () => `${location.origin}/`
+const redirectUri = () => `${location.origin}/app/`
 const b64url = (bytes: ArrayBuffer | Uint8Array) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes)))
     .replace(/\+/g, '-')
@@ -39,7 +46,7 @@ const b64url = (bytes: ArrayBuffer | Uint8Array) =>
     .replace(/=+$/, '')
 
 async function ensureClient(): Promise<string> {
-  if (memory.clientId) return memory.clientId
+  if (memory.clientId && memory.redirectUri === redirectUri()) return memory.clientId
   const res = await fetch('/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,7 +59,7 @@ async function ensureClient(): Promise<string> {
   })
   if (!res.ok) throw new Error(`クライアント登録に失敗しました（${res.status}）`)
   const { client_id } = (await res.json()) as { client_id: string }
-  save({ clientId: client_id })
+  save({ clientId: client_id, redirectUri: redirectUri() })
   return client_id
 }
 
@@ -88,6 +95,7 @@ async function token(body: Record<string, string>): Promise<boolean> {
   const t = (await res.json()) as TokenResponse
   save({
     clientId: memory.clientId,
+    redirectUri: memory.redirectUri,
     accessToken: t.access_token,
     refreshToken: t.refresh_token ?? memory.refreshToken,
     expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000,
@@ -101,7 +109,7 @@ export async function completeLoginIfReturning(): Promise<void> {
   const code = params.get('code')
   const error = params.get('error')
   if (!code && !error) return
-  history.replaceState(null, '', '/')
+  history.replaceState(null, '', '/app/')
   if (error) throw new Error(params.get('error_description') ?? error)
   const pending = read<{ verifier: string; state: string }>(sessionStorage, PENDING)
   write(sessionStorage, PENDING, null)
@@ -135,7 +143,7 @@ export const demo = import.meta.env.DEV && new URLSearchParams(location.search).
 export const isLoggedIn = () => demo || Boolean(memory.accessToken || memory.refreshToken)
 
 export function logout() {
-  save({ clientId: memory.clientId })
+  save({ clientId: memory.clientId, redirectUri: memory.redirectUri })
 }
 
 // API を呼ぶ。期限切れなら更新し、それでも 401 なら未ログイン扱いにする
