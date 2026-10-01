@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api, completeLoginIfReturning, isLoggedIn, LoggedOut, login } from './auth.ts'
 import { avatarHue, initial, n, senderName, when } from './format.ts'
-import type { ComposeTarget, Draft, Message, MessagePage, MessageRef, Overview, SearchResult, Sender } from './types.ts'
+import type {
+  Account,
+  ComposeTarget,
+  Draft,
+  Message,
+  MessagePage,
+  MessageRef,
+  Overview,
+  SearchResult,
+  Sender,
+} from './types.ts'
 import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
 import { Compose } from './Compose.tsx'
 import { MessageView } from './MessageView.tsx'
