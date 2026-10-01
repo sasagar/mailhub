@@ -34,9 +34,19 @@ type Consent = { oauthReqInfo: AuthRequest; browserHash: string }
 type Pending = { oauthReqInfo: AuthRequest; scopes: Scope[]; codeVerifier: string }
 
 // OAuthProvider の defaultHandler。/authorize（同意画面）と /callback（Access からの戻り）を扱う
+// Google Search Console の所有確認用ファイル。静的ファイルとして置くと、配信側が .html を省いた URL へ
+// 転送（307）してしまい確認に通らないので、Worker がそのままの URL で返す
+const SITE_VERIFICATION: Record<string, string> = {
+  '/google86918974a41ea5c2.html': 'google-site-verification: google86918974a41ea5c2.html',
+}
+
 export const authHandler = {
   async fetch(request: Request, env: AuthEnv): Promise<Response> {
     const url = new URL(request.url)
+    const verification = SITE_VERIFICATION[url.pathname]
+    if (verification && request.method === 'GET') {
+      return new Response(verification, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+    }
     try {
       if (url.pathname === '/authorize' && request.method === 'GET') return await showConsent(request, env)
       if (url.pathname === '/authorize' && request.method === 'POST') return await acceptConsent(request, env)

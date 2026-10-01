@@ -9,7 +9,16 @@
   // 画面は静的アセット（SPA）。API と OAuth のパスだけ Worker が先に処理する
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/mcp", "/mcp/*", "/authorize", "/token", "/register", "/callback", "/.well-known/*"],
+    "run_worker_first": [
+      "/mcp",
+      "/mcp/*",
+      "/authorize",
+      "/token",
+      "/register",
+      "/callback",
+      "/.well-known/*",
+      "/google86918974a41ea5c2.html",
+    ],
   },
   "routes": [
     {
