@@ -4,6 +4,34 @@ kind: Namespace
 metadata:
   name: mailhub
 ---
+# keel（ikaskey-gatekeeper namespace で動いている）にこの namespace の Deployment を入れ替えさせる
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: keel-manage
+  namespace: mailhub
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keel-manage
+  namespace: mailhub
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: keel-manage
+subjects:
+  - kind: ServiceAccount
+    name: keel
+    namespace: ikaskey-gatekeeper
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,6 +81,9 @@ spec:
             limits:
               memory: 384Mi
           securityContext:
+            # イメージの USER は名前（node）なので、root でないことを k8s が確かめられるよう UID を数字で渡す
+            runAsUser: 1000
+            runAsGroup: 1000
             runAsNonRoot: true
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
