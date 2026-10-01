@@ -10,6 +10,8 @@ export type Account = {
   provider: Provider
   imapHost: string
   imapPort: number
+  smtpHost: string | null
+  smtpPort: number | null
   username: string
   authType: 'password' | 'oauth'
   // password ならアプリパスワード、oauth なら Google の更新用トークン（どちらも復号済み）
@@ -26,7 +28,7 @@ export const PRESETS: Record<
 
 export async function loadAccounts(sql: Sql, key: Buffer): Promise<Account[]> {
   const rows = await sql`
-    select id, label, email, provider, imap_host, imap_port, username, auth_type, secret
+    select id, label, email, provider, imap_host, imap_port, smtp_host, smtp_port, username, auth_type, secret
     from accounts where enabled order by id`
   return rows.map((r) => ({
     id: r.id,
@@ -35,6 +37,8 @@ export async function loadAccounts(sql: Sql, key: Buffer): Promise<Account[]> {
     provider: r.provider,
     imapHost: r.imap_host,
     imapPort: r.imap_port,
+    smtpHost: r.smtp_host,
+    smtpPort: r.smtp_port,
     username: r.username,
     authType: r.auth_type,
     secret: decryptSecret(r.secret, key),

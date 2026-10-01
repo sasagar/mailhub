@@ -42,6 +42,11 @@ const SITE_VERIFICATION: Record<string, string> = {
 
 const PUBLIC_PAGES = new Set(['/', '/about', '/privacy'])
 
+// mailhub 自身の Web 画面からの認可か。戻り先がこのサイトの /app/ のものだけ（クライアント名は名乗り放題なので見ない）
+function isWebApp(request: Request, req: AuthRequest): boolean {
+  return req.redirectUri === `${new URL(request.url).origin}/app/`
+}
+
 export const authHandler = {
   async fetch(request: Request, env: AuthEnv): Promise<Response> {
     const url = new URL(request.url)
@@ -91,7 +96,12 @@ async function showConsent(request: Request, env: AuthEnv) {
   const consent: Consent = { oauthReqInfo, browserHash: await sha256(browser) }
   await env.OAUTH_KV.put(`consent:${csrfToken}`, JSON.stringify(consent), { expirationTtl: TTL })
 
-  const html = renderConsent({ client, csrfToken, requested: oauthReqInfo.scope.filter(isScope) })
+  const html = renderConsent({
+    client,
+    csrfToken,
+    requested: oauthReqInfo.scope.filter(isScope),
+    canSend: isWebApp(request, oauthReqInfo),
+  })
   return new Response(html, {
     headers: securityHeaders([new URL(env.ACCESS_AUTHORIZATION_URL).origin], {
       'Set-Cookie': cookie(request, BROWSER_COOKIE, browser),
@@ -111,10 +121,12 @@ async function acceptConsent(request: Request, env: AuthEnv) {
   if ((await sha256(browser)) !== consent.browserHash) throw new Error('同意画面を開いたブラウザと違います')
   await env.OAUTH_KV.delete(`consent:${csrfToken}`)
 
-  // 必須の権限は常に付け、未実装のものは選ばれても付けない
+  // 必須の権限は常に付け、未実装のものは選ばれても付けない。送信は Web 画面のクライアントにだけ付ける
+  // （フォームの値は書き換えられるので、ここでも確かめる）
   const chosen = form.getAll('scope').filter((s): s is Scope => typeof s === 'string' && isScope(s))
+  const canSend = isWebApp(request, consent.oauthReqInfo)
   const scopes = (Object.keys(SCOPES) as Scope[]).filter(
-    (s) => SCOPES[s].required || (SCOPES[s].available && chosen.includes(s)),
+    (s) => SCOPES[s].required || (SCOPES[s].available && chosen.includes(s) && (s !== 'mail.send' || canSend)),
   )
 
   const { verifier, challenge } = await createPkce()

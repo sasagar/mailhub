@@ -2,7 +2,13 @@
 export const SCOPES = {
   'mail.read': { label: '読み取り', description: '受信トレイの一覧・集計を見る', required: true, available: true },
   'mail.triage': { label: '整理', description: '既読にする・アーカイブする', required: false, available: true },
-  'mail.send': { label: '送信', description: 'メールを送る（未実装）', required: false, available: false },
+  // 送信は mailhub の Web 画面（戻り先が /app/）にだけ許す。エージェントは下書きまで（handler.ts で確かめる）
+  'mail.send': {
+    label: '送信',
+    description: '下書きを送る（mailhub の Web 画面だけ）',
+    required: false,
+    available: true,
+  },
 } as const
 
 export type Scope = keyof typeof SCOPES

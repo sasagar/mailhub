@@ -335,3 +335,213 @@ export async function enqueueMarkSeen(sql: Sql, opts: { messageIds: string[]; re
   }
   return { operations: ids, count: rows.length }
 }
+
+// ---- 下書きと送信 ----
+
+export type Addr = { name: string | null; address: string }
+
+// 区切り（カンマ・読点・改行・セミコロン）で分ける。ただし引用符と <> の中では区切らない（"Sato, Ichiro" <…> のため）
+function splitAddressList(input: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let quoted = false
+  let angle = false
+  for (const ch of input) {
+    if (ch === '"') quoted = !quoted
+    else if (ch === '<' && !quoted) angle = true
+    else if (ch === '>' && !quoted) angle = false
+    if (!quoted && !angle && /[,、;\n]/.test(ch)) {
+      out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  out.push(cur)
+  return out
+}
+
+// 「名前 <a@b>」や「a@b」の並びを読む
+export function parseAddresses(input: string | string[] | undefined): Addr[] {
+  const parts = (Array.isArray(input) ? input : splitAddressList(input ?? '')).map((s) => s.trim()).filter(Boolean)
+  return parts.map((p) => {
+    const m = /^(.*?)\s*<([^>]+)>$/.exec(p)
+    const address = (m ? m[2]! : p).trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error(`メールアドレスの形式が正しくありません: ${p}`)
+    const name = m?.[1]?.replace(/^"|"$/g, '').trim()
+    return { name: name || null, address }
+  })
+}
+
+export type Draft = {
+  id: string
+  account: string
+  to: Addr[]
+  cc: Addr[]
+  bcc: Addr[]
+  subject: string
+  body: string
+  replyToMessageId: string | null
+  inReplyTo: string | null
+  status: 'draft' | 'sending' | 'sent' | 'failed'
+  error: string | null
+  createdBy: string
+  updatedAt: string
+  sentAt: string | null
+}
+
+const draftColumns = (sql: Sql) => sql`
+  d.id, a.email, d.to_addrs, d.cc_addrs, d.bcc_addrs, d.subject, d.body_text, d.reply_to_message_id,
+  d.in_reply_to, d.status, d.error, d.created_by, d.updated_at, d.sent_at`
+
+const toDraft = (r: Record<string, any>): Draft => ({
+  id: String(r.id),
+  account: r.email,
+  to: r.to_addrs,
+  cc: r.cc_addrs,
+  bcc: r.bcc_addrs,
+  subject: r.subject,
+  body: r.body_text,
+  replyToMessageId: r.reply_to_message_id == null ? null : String(r.reply_to_message_id),
+  inReplyTo: r.in_reply_to,
+  status: r.status,
+  error: r.error,
+  createdBy: r.created_by,
+  updatedAt: r.updated_at?.toISOString(),
+  sentAt: r.sent_at?.toISOString() ?? null,
+})
+
+async function accountIdFor(sql: Sql, email: string | undefined): Promise<number> {
+  const rows = email
+    ? await sql`select id from accounts where email = ${email} and enabled`
+    : await sql`select id from accounts where enabled order by id`
+  if (rows.length === 0) throw new Error(email ? `アカウント ${email} はありません` : 'アカウントがありません')
+  if (!email && rows.length > 1) throw new Error('アカウントが複数あるので account を指定してください')
+  return rows[0]!.id
+}
+
+const quote = (text: string) =>
+  text
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n')
+
+// 下書きを作る。reply_to を渡すと、元のメールから宛先・件名・引用・返信ヘッダーを組み立てる（渡した値が優先）
+export async function createDraft(
+  sql: Sql,
+  opts: {
+    account?: string
+    to?: string | string[]
+    cc?: string | string[]
+    bcc?: string | string[]
+    subject?: string
+    body?: string
+    replyTo?: MessageRef
+    replyAll?: boolean
+    createdBy: string
+  },
+): Promise<Draft> {
+  let accountId: number
+  let to = parseAddresses(opts.to)
+  let cc = parseAddresses(opts.cc)
+  let subject = opts.subject ?? ''
+  let body = opts.body ?? ''
+  let inReplyTo: string | null = null
+  let references: string | null = null
+  let replyToMessageId: string | null = null
+
+  if (opts.replyTo) {
+    const orig = await getMessageBody(sql, opts.replyTo, opts.createdBy)
+    const [a] = await sql`select id, email from accounts where email = ${orig.account}`
+    accountId = a!.id
+    const me = String(a!.email).toLowerCase()
+    const h = orig.headers
+    const replyTarget = (h.replyTo.length ? h.replyTo : h.from ? [h.from] : []).filter((x) => x.address) as Addr[]
+    if (to.length === 0) to = replyTarget
+    if (opts.replyAll && cc.length === 0) {
+      cc = [...h.to, ...h.cc].filter(
+        (x): x is Addr => !!x.address && x.address.toLowerCase() !== me && !to.some((t) => t.address === x.address),
+      )
+    }
+    if (!opts.subject) subject = /^re:/i.test(h.subject ?? '') ? (h.subject ?? '') : `Re: ${h.subject ?? ''}`
+    const when = h.date ? new Date(h.date).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : ''
+    const who = h.from?.name ? `${h.from.name} <${h.from.address}>` : (h.from?.address ?? '')
+    body = `${body}\n\n${when} ${who}:\n${quote(orig.text.trim())}\n`
+    inReplyTo = h.messageId
+    references = [h.references, h.messageId].filter(Boolean).join(' ') || null
+    replyToMessageId = orig.messageId
+  } else {
+    accountId = await accountIdFor(sql, opts.account)
+  }
+
+  const [row] = await sql`
+    insert into drafts ${sql({
+      account_id: accountId,
+      to_addrs: sql.json(to),
+      cc_addrs: sql.json(cc),
+      bcc_addrs: sql.json(parseAddresses(opts.bcc)),
+      subject,
+      body_text: body,
+      in_reply_to: inReplyTo,
+      references_: references,
+      reply_to_message_id: replyToMessageId,
+      created_by: opts.createdBy,
+    })}
+    returning id`
+  return getDraft(sql, String(row!.id))
+}
+
+export async function getDraft(sql: Sql, id: string): Promise<Draft> {
+  const [r] =
+    await sql`select ${draftColumns(sql)} from drafts d join accounts a on a.id = d.account_id where d.id = ${id}`
+  if (!r) throw new Error('下書きが見つかりません')
+  return toDraft(r)
+}
+
+export async function listDrafts(sql: Sql, opts: { includeSent: boolean; limit: number }): Promise<Draft[]> {
+  const rows = await sql`
+    select ${draftColumns(sql)} from drafts d join accounts a on a.id = d.account_id
+    ${opts.includeSent ? sql`` : sql`where d.status <> 'sent'`}
+    order by d.updated_at desc limit ${opts.limit}`
+  return rows.map(toDraft)
+}
+
+export async function updateDraft(
+  sql: Sql,
+  id: string,
+  patch: { to?: string | string[]; cc?: string | string[]; bcc?: string | string[]; subject?: string; body?: string },
+): Promise<Draft> {
+  const set: Record<string, unknown> = { updated_at: new Date() }
+  if (patch.to !== undefined) set.to_addrs = sql.json(parseAddresses(patch.to))
+  if (patch.cc !== undefined) set.cc_addrs = sql.json(parseAddresses(patch.cc))
+  if (patch.bcc !== undefined) set.bcc_addrs = sql.json(parseAddresses(patch.bcc))
+  if (patch.subject !== undefined) set.subject = patch.subject
+  if (patch.body !== undefined) set.body_text = patch.body
+  const rows = await sql`update drafts set ${sql(set)} where id = ${id} and status in ('draft', 'failed') returning id`
+  if (rows.length === 0) throw new Error('編集できる下書きがありません（送信中か送信済み）')
+  return getDraft(sql, id)
+}
+
+export async function deleteDraft(sql: Sql, id: string): Promise<void> {
+  const rows = await sql`delete from drafts where id = ${id} and status in ('draft', 'failed') returning id`
+  if (rows.length === 0) throw new Error('消せる下書きがありません（送信中か送信済み）')
+}
+
+// 送信を同期デーモンに頼み、結果を待つ（mail.send の権限は Web 画面だけ）
+export async function sendDraftNow(sql: Sql, id: string, requestedBy: string): Promise<Draft> {
+  const draft = await getDraft(sql, id)
+  if (draft.status !== 'draft' && draft.status !== 'failed') throw new Error('送れる状態の下書きではありません')
+  const [a] = await sql`select account_id from drafts where id = ${id}`
+  const [req] = await sql`
+    insert into requests (kind, account_id, params, requested_by)
+    values ('send', ${a!.account_id}, ${sql.json({ draftId: Number(id) })}, ${requestedBy})
+    returning id`
+  const deadline = Date.now() + 25_000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 400))
+    const [st] = await sql`select status, error from requests where id = ${req!.id}`
+    if (st?.status === 'failed') throw new Error(`送信できませんでした: ${st.error}`)
+    if (st?.status === 'done') return getDraft(sql, id)
+  }
+  throw new Error('送信の結果が 25 秒以内に返りませんでした。下書きの状態を確かめてください')
+}

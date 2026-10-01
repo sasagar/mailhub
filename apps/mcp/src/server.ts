@@ -8,14 +8,18 @@ import { API_PREFIX, restApi } from './api.ts'
 import { authHandler } from './auth/handler.ts'
 import {
   enqueueArchive,
+  createDraft,
+  deleteDraft,
   enqueueArchiveBySenders,
   enqueueMarkSeen,
   getMessageBody,
   getOperations,
   inboxOverview,
+  listDrafts,
   listMessages,
   searchMail,
   senderSummary,
+  updateDraft,
 } from './queries.ts'
 import { SCOPES, type Props, type Scope } from './scopes.ts'
 
@@ -211,6 +215,103 @@ function createServer(sql: Sql, props: Props) {
       async (a) => {
         requireScope('mail.triage')
         return json(await enqueueMarkSeen(sql, { messageIds: a.message_ids, requestedBy: `mcp:${props.clientName}` }))
+      },
+    )
+
+    // 送信は Web 画面で本人が行う。エージェントは下書きまで（送信のツールは無い）
+    const draftLink = (id: string) => `${new URL(env.MCP_RESOURCE).origin}/app/#draft=${id}`
+    const addrList = z.union([z.string(), z.array(z.string())]).optional()
+
+    server.registerTool(
+      'create_draft',
+      {
+        description:
+          'メールの下書きを作る（送信はしない。送信は本人が mailhub の Web 画面で確認して行う）。' +
+          'reply_to_message_id（受信トレイのメールの ID）または reply_to_account・reply_to_mailbox・reply_to_uid（search_mail の結果）を渡すと返信になり、' +
+          '宛先・「Re: 件名」・引用・返信ヘッダーを元のメールから組み立てる（to や subject を渡せばそちらが優先）。body には本文だけを書けば、引用は後ろに付く。' +
+          '返したリンクを本人に伝えると、Web 画面で開いて送信できる。',
+        inputSchema: {
+          body: z.string().max(100_000).describe('本文（プレーンテキスト）'),
+          to: addrList.describe('宛先。「名前 <a@b>」や「a@b」をカンマ区切りか配列で'),
+          cc: addrList,
+          bcc: addrList,
+          subject: z.string().max(500).optional(),
+          account: z.string().optional().describe('送信に使うアカウント（返信なら元のメールのアカウント）'),
+          reply_to_message_id: z.string().regex(/^\d+$/).optional(),
+          reply_to_account: z.string().optional(),
+          reply_to_mailbox: z.string().optional(),
+          reply_to_uid: z.number().int().positive().optional(),
+          reply_all: z.boolean().default(false).describe('返信のとき、元の宛先と CC にも送る'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        const replyTo = a.reply_to_message_id
+          ? { messageId: a.reply_to_message_id }
+          : a.reply_to_account && a.reply_to_mailbox && a.reply_to_uid
+            ? { account: a.reply_to_account, mailbox: a.reply_to_mailbox, uid: a.reply_to_uid }
+            : undefined
+        const draft = await createDraft(sql, {
+          account: a.account,
+          to: a.to,
+          cc: a.cc,
+          bcc: a.bcc,
+          subject: a.subject,
+          body: a.body,
+          replyTo,
+          replyAll: a.reply_all,
+          createdBy: `mcp:${props.clientName}`,
+        })
+        return json({ draft, openInMailhub: draftLink(draft.id) })
+      },
+    )
+
+    server.registerTool(
+      'update_draft',
+      {
+        description: '下書きを書き直す（送信前のものだけ）。渡した項目だけを置き換える。',
+        inputSchema: {
+          draft_id: z.string().regex(/^\d+$/),
+          to: addrList,
+          cc: addrList,
+          bcc: addrList,
+          subject: z.string().max(500).optional(),
+          body: z.string().max(100_000).optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        const draft = await updateDraft(sql, a.draft_id, a)
+        return json({ draft, openInMailhub: draftLink(draft.id) })
+      },
+    )
+
+    server.registerTool(
+      'list_drafts',
+      {
+        description: '下書きの一覧（送信前のもの。include_sent で送信済みも）。',
+        inputSchema: { include_sent: z.boolean().default(false), limit: z.number().int().min(1).max(100).default(20) },
+        annotations: { readOnlyHint: true },
+      },
+      async (a) => {
+        requireScope('mail.read')
+        return json(await listDrafts(sql, { includeSent: a.include_sent, limit: a.limit }))
+      },
+    )
+
+    server.registerTool(
+      'delete_draft',
+      {
+        description: '下書きを消す（送信前のものだけ）。',
+        inputSchema: { draft_id: z.string().regex(/^\d+$/) },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        await deleteDraft(sql, a.draft_id)
+        return json({ deleted: a.draft_id })
       },
     )
 

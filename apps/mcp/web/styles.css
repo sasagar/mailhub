@@ -1167,3 +1167,94 @@ html.sheet-open body {
 .signin-links a {
   color: var(--ai);
 }
+/* 作成画面 */
+.sheet-bar {
+  justify-content: space-between;
+  gap: 8px;
+}
+.bar-actions {
+  display: flex;
+  gap: 6px;
+}
+.bar-status {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.compose-form {
+  display: grid;
+  gap: 2px;
+  max-width: 760px;
+  margin: 12px auto 0;
+  padding: 4px 0;
+  background: var(--sheet);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.compose-form label {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.compose-form label > span {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.compose-form input,
+.compose-form select,
+.compose-form output {
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  font-size: 16px; /* iOS がフォーカス時に拡大しないよう 16px 以上 */
+  color: var(--ink);
+}
+.compose-form input:focus-visible,
+.compose-form textarea:focus-visible {
+  outline: none;
+}
+.compose-form textarea {
+  min-height: 40vh;
+  padding: 12px 14px;
+  border: 0;
+  resize: vertical;
+  background: transparent;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.link-button {
+  justify-self: start;
+  margin: 6px 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ai);
+  font-size: 13px;
+}
+.compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--line);
+}
+.compose-actions .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.compose-actions .danger {
+  margin-right: auto;
+  color: var(--alert);
+}
+.badge.failed {
+  background: color-mix(in srgb, var(--alert) 14%, transparent);
+  color: var(--alert);
+}

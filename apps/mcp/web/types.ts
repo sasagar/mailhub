@@ -57,3 +57,25 @@ export type MessageBody = {
   html: string | null
   attachments: { index: number; filename: string; mimeType: string; size: number }[]
 }
+export type DraftAddr = { name: string | null; address: string }
+export type Draft = {
+  id: string
+  account: string
+  to: DraftAddr[]
+  cc: DraftAddr[]
+  bcc: DraftAddr[]
+  subject: string
+  body: string
+  replyToMessageId: string | null
+  inReplyTo: string | null
+  status: 'draft' | 'sending' | 'sent' | 'failed'
+  error: string | null
+  createdBy: string
+  updatedAt: string
+  sentAt: string | null
+}
+// 作成画面の開き方: 既存の下書き / 返信の下書きを作る / 白紙から
+export type ComposeTarget =
+  | { draftId: string }
+  | { replyTo: { id: string } | { account: string; mailbox: string; uid: number }; replyAll: boolean }
+  | { blank: true }

@@ -4,14 +4,20 @@ import { z } from 'zod'
 import { createSql, type Sql } from '@mailhub/db'
 import {
   enqueueArchive,
+  createDraft,
+  deleteDraft,
   enqueueArchiveBySenders,
   enqueueMarkSeen,
   getMessageBody,
   getOperations,
+  getDraft,
   inboxOverview,
+  listDrafts,
   searchMail,
+  sendDraftNow,
   listMessages,
   senderSummary,
+  updateDraft,
 } from './queries.ts'
 import type { Props, Scope } from './scopes.ts'
 
@@ -33,6 +39,19 @@ const json = (value: unknown, status = 200) =>
   })
 
 const numericId = z.string().regex(/^\d+$/)
+const DraftBody = z.object({
+  id: numericId.optional(),
+  account: z.string().optional(),
+  to: z.string().max(5000).optional(),
+  cc: z.string().max(5000).optional(),
+  bcc: z.string().max(5000).optional(),
+  subject: z.string().max(500).optional(),
+  body: z.string().max(100_000).optional(),
+  reply_to: z
+    .union([z.object({ id: numericId }), z.object({ account: z.string(), mailbox: z.string(), uid: z.number().int() })])
+    .optional(),
+  reply_all: z.boolean().optional(),
+})
 const ArchiveBody = z.union([
   z.object({ message_ids: z.array(numericId).min(1).max(2000), mark_read: z.boolean().default(false) }),
   z.object({ sender: z.string().min(3), account: z.string().optional(), mark_read: z.boolean().default(false) }),
@@ -107,6 +126,51 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
     return json(
       await enqueueMarkSeen(sql, { messageIds: body.data.message_ids, requestedBy: `web:${props.clientName}` }),
     )
+  }
+  // 下書き。送信だけは mail.send（Web 画面だけに与える権限）が要る
+  if (url.pathname === `${API_PREFIX}drafts`) {
+    if (request.method === 'GET') {
+      need('mail.read')
+      const id = q.get('id')
+      if (id) return json(await getDraft(sql, id))
+      return json(await listDrafts(sql, { includeSent: q.get('sent') === '1', limit: 50 }))
+    }
+    need('mail.triage')
+    const body = DraftBody.safeParse(await request.json().catch(() => null))
+    if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
+    const d = body.data
+    if (request.method === 'POST') {
+      const replyTo = d.reply_to
+        ? 'id' in d.reply_to
+          ? { messageId: d.reply_to.id }
+          : { account: d.reply_to.account, mailbox: d.reply_to.mailbox, uid: d.reply_to.uid }
+        : undefined
+      return json(
+        await createDraft(sql, {
+          account: d.account,
+          to: d.to,
+          cc: d.cc,
+          bcc: d.bcc,
+          subject: d.subject,
+          body: d.body,
+          replyTo,
+          replyAll: d.reply_all,
+          createdBy: `web:${props.clientName}`,
+        }),
+      )
+    }
+    if (!d.id) throw new HttpError(400, 'id を指定してください')
+    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d))
+    if (request.method === 'DELETE') {
+      await deleteDraft(sql, d.id)
+      return json({ deleted: d.id })
+    }
+  }
+  if (request.method === 'POST' && url.pathname === `${API_PREFIX}send`) {
+    need('mail.send')
+    const body = z.object({ id: numericId }).safeParse(await request.json().catch(() => null))
+    if (!body.success) throw new HttpError(400, 'id を指定してください')
+    return json(await sendDraftNow(sql, body.data.id, `web:${props.clientName}`))
   }
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}operations`) {
     need('mail.read')

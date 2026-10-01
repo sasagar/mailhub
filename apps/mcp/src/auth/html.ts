@@ -25,13 +25,20 @@ export function securityHeaders(formActionOrigins: string[], extra: HeadersInit 
 }
 
 // MCP クライアントにどの権限を渡すかを選ぶ画面。送信先（redirect URI）も見せて、見覚えのないクライアントに気付けるようにする
-export function renderConsent(opts: { client: ClientInfo | null; csrfToken: string; requested: Scope[] }): string {
+export function renderConsent(opts: {
+  client: ClientInfo | null
+  csrfToken: string
+  requested: Scope[]
+  // 送信の権限を与えてよいクライアントか（mailhub の Web 画面だけ）
+  canSend: boolean
+}): string {
   const name = escapeHtml(opts.client?.clientName || opts.client?.clientId || '不明なクライアント')
   const redirects = (opts.client?.redirectUris ?? []).map((u) => `<li><code>${escapeHtml(u)}</code></li>`).join('')
   const items = (Object.entries(SCOPES) as [Scope, (typeof SCOPES)[Scope]][])
     .map(([scope, s]) => {
-      const checked = s.required || (s.available && (opts.requested.length === 0 || opts.requested.includes(scope)))
-      const disabled = s.required || !s.available
+      const allowed = s.available && (scope !== 'mail.send' || opts.canSend)
+      const checked = s.required || (allowed && (opts.requested.length === 0 || opts.requested.includes(scope)))
+      const disabled = s.required || !allowed
       return `<label class="${disabled ? 'off' : ''}">
         <input type="checkbox" name="scope" value="${scope}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
         <b>${escapeHtml(s.label)}</b> <span>${escapeHtml(s.description)}</span>

@@ -39,11 +39,16 @@ function frameDocument(html: string, showImages: boolean, dark: boolean): string
 </style></head><body>${html}</body></html>`
 }
 
+// 返信の下書きを作るときの元のメールの指定（受信トレイなら ID、それ以外は所在）
+const replyRef = (b: MessageBody) =>
+  b.messageId ? { id: b.messageId } : { account: b.account, mailbox: b.mailbox, uid: b.uid }
+
 export function MessageView(props: {
   target: MessageRef
   onClose: () => void
   onError: (err: unknown) => void
   onMarkedRead: () => void
+  onReply: (replyTo: { id: string } | { account: string; mailbox: string; uid: number }, replyAll: boolean) => void
 }) {
   const [body, setBody] = useState<MessageBody | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -96,6 +101,18 @@ export function MessageView(props: {
         <button className="back" onClick={props.onClose}>
           ‹ 戻る
         </button>
+        {body && (
+          <span className="bar-actions">
+            <button className="quiet" onClick={() => props.onReply(replyRef(body), false)}>
+              返信
+            </button>
+            {body.headers.to.length + body.headers.cc.length > 1 && (
+              <button className="quiet" onClick={() => props.onReply(replyRef(body), true)}>
+                全員に返信
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <div className="sheet-body">
         {error && <p className="notice error">{error}</p>}

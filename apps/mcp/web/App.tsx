@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api, completeLoginIfReturning, isLoggedIn, LoggedOut, login } from './auth.ts'
 import { avatarHue, initial, n, senderName, when } from './format.ts'
-import type { Message, MessagePage, MessageRef, Overview, SearchResult, Sender } from './types.ts'
+import type { ComposeTarget, Draft, Message, MessagePage, MessageRef, Overview, SearchResult, Sender } from './types.ts'
 import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
+import { Compose } from './Compose.tsx'
 import { MessageView } from './MessageView.tsx'
 import { useFreshness } from './useFreshness.ts'
 import { usePullToRefresh } from './usePullToRefresh.ts'
 
-type View = 'senders' | 'timeline' | 'search'
+type View = 'senders' | 'timeline' | 'search' | 'drafts'
 
 export function App() {
   const [phase, setPhase] = useState<'starting' | 'out' | 'in'>('starting')
@@ -86,8 +87,26 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
     history.pushState({ message: true }, '')
     setOpened(ref)
   }, [])
+  // 開いている作成画面。メールと同じく履歴に積む
+  const [composing, setComposing] = useState<ComposeTarget | null>(null)
+  const [sentNotice, setSentNotice] = useState<string | null>(null)
+  const openCompose = useCallback((target: ComposeTarget) => {
+    history.pushState({ compose: true }, '')
+    setComposing(target)
+  }, [])
+  // エージェントが作った下書きのリンク（/app/#draft=ID）から開く
   useEffect(() => {
-    const onPop = () => setOpened(null)
+    const m = /^#draft=(\d+)$/.exec(location.hash)
+    if (m) {
+      history.replaceState(null, '', '/app/')
+      openCompose({ draftId: m[1]! })
+    }
+  }, [openCompose])
+  useEffect(() => {
+    const onPop = () => {
+      setOpened(null)
+      setComposing(null)
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
@@ -132,6 +151,20 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
                 />
               </svg>
             </button>
+            {canTriage && (
+              <button className="refresh" aria-label="新しいメールを書く" onClick={() => openCompose({ blank: true })}>
+                <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+                  <path
+                    d="M4 16h3l8.5-8.5a2.1 2.1 0 0 0-3-3L4 13v3zM11.5 5.5l3 3"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
           <p className="totals" aria-live="polite">
             {overview ? (
@@ -157,6 +190,9 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
             </button>
             <button role="tab" aria-selected={view === 'search'} onClick={() => setView('search')}>
               検索
+            </button>
+            <button role="tab" aria-selected={view === 'drafts'} onClick={() => setView('drafts')}>
+              下書き
             </button>
           </div>
           {accounts.length > 1 && (
@@ -198,12 +234,45 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
           onOpen={openMessage}
         />
       )}
+      {view === 'drafts' && <Drafts version={version} onOpen={(id) => openCompose({ draftId: id })} onError={guard} />}
       {view === 'search' && (
         <Search account={account} canTriage={canTriage} archive={archive} onError={guard} onOpen={openMessage} />
       )}
 
       <Activity jobs={jobs} now={now} onDismiss={dismiss} />
-      {opened && <MessageView target={opened} onClose={() => history.back()} onError={guard} onMarkedRead={reload} />}
+      {opened && (
+        <MessageView
+          target={opened}
+          onClose={() => history.back()}
+          onError={guard}
+          onMarkedRead={reload}
+          onReply={(replyTo, replyAll) => openCompose({ replyTo, replyAll })}
+        />
+      )}
+      {composing && (
+        <Compose
+          target={composing}
+          accounts={accounts}
+          canSend={overview?.me.scopes.includes('mail.send') ?? false}
+          onClose={() => history.back()}
+          onError={guard}
+          onSent={(d) => {
+            history.back()
+            setSentNotice(`「${d.subject || '（件名なし）'}」を送信しました`)
+            setTimeout(() => setSentNotice(null), 6000)
+            reload()
+          }}
+        />
+      )}
+      {sentNotice && (
+        <div className="activity">
+          <div className="job done">
+            <div className="job-line">
+              <span className="job-label">{sentNotice}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -830,5 +899,45 @@ function Search(props: {
         </div>
       )}
     </>
+  )
+}
+
+// 下書きの一覧（エージェントが作ったものも並ぶ）。押すと作成画面で開く
+function Drafts(props: { version: number; onOpen: (id: string) => void; onError: (err: unknown) => void }) {
+  const [drafts, setDrafts] = useState<Draft[] | null>(null)
+  useEffect(() => {
+    api<Draft[]>('/mcp/api/drafts').then(setDrafts).catch(props.onError)
+  }, [props.version, props.onError])
+
+  if (!drafts) return <p className="notice">読み込み中</p>
+  if (drafts.length === 0)
+    return (
+      <p className="notice">下書きはありません。右上の ✎ から書けます。Claude に返信の下書きを頼むこともできます。</p>
+    )
+  return (
+    <ol className="timeline">
+      {drafts.map((d) => {
+        const to = d.to.map((a) => a.name || a.address).join(', ')
+        const byAgent = d.createdBy.startsWith('mcp:')
+        return (
+          <li key={d.id}>
+            <div className="msg-row">
+              <Avatar name={to || '?'} seed={d.to[0]?.address ?? d.id} />
+              <button className="msg-open" onClick={() => props.onOpen(d.id)}>
+                <span className="line">
+                  <span className="who">{to || '（宛先なし）'}</span>
+                  <time dateTime={d.updatedAt}>{when(d.updatedAt)}</time>
+                </span>
+                <span className="subject">
+                  {d.status === 'failed' && <span className="badge failed">送信失敗</span>}
+                  {byAgent && <span className="badge">{d.createdBy.slice(4)} が作成</span>}
+                  {d.subject || '（件名なし）'}
+                </span>
+              </button>
+            </div>
+          </li>
+        )
+      })}
+    </ol>
   )
 }

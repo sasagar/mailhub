@@ -1,5 +1,15 @@
 // 開発サーバーで ?demo を付けたときだけ使う見本データ。デザインの確認用で、本番のビルドには入らない
-import type { Message, MessageBody, MessagePage, Operation, Overview, Queued, SearchResult, Sender } from './types.ts'
+import type {
+  Draft,
+  Message,
+  MessageBody,
+  MessagePage,
+  Operation,
+  Overview,
+  Queued,
+  SearchResult,
+  Sender,
+} from './types.ts'
 
 const NAMES: [string, string, number, number][] = [
   ['＠IT通信 Special', 'atmarkit-mail@noreply.itmedia.co.jp', 176, 175],
@@ -61,6 +71,26 @@ const messagesOf = (from?: string): Message[] =>
       })),
     )
 
+let draftSeq = 100
+let drafts: Draft[] = [
+  {
+    id: '99',
+    account: 'me@example.com',
+    to: [{ name: '山田 太郎', address: 'taro@example.com' }],
+    cc: [],
+    bcc: [],
+    subject: 'Re: 来週の打ち合わせ',
+    body: '山田さん\n\n来週火曜の 14 時で大丈夫です。\n',
+    replyToMessageId: null,
+    inReplyTo: null,
+    status: 'draft',
+    error: null,
+    createdBy: 'mcp:Claude',
+    updatedAt: new Date().toISOString(),
+    sentAt: null,
+  },
+]
+
 type Pending = { started: number; count: number; senders: string[] }
 const ops = new Map<string, Pending>()
 let opSeq = 1
@@ -73,7 +103,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
   const unread = senders.reduce((s, x) => s + x.unread, 0) + 3100
   if (tail === 'overview') {
     const o: Overview = {
-      me: { email: 'me@example.com', scopes: ['mail.read', 'mail.triage'] },
+      me: { email: 'me@example.com', scopes: ['mail.read', 'mail.triage', 'mail.send'] },
       accounts: [{ account: 'me@example.com', label: 'わたし', total, unread, syncedAt: new Date().toISOString() }],
     }
     return o as T
@@ -153,6 +183,61 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       attachments: [{ index: 0, filename: '領収書.pdf', mimeType: 'application/pdf', size: 182_000 }],
     }
     return body as T
+  }
+  if (tail === 'drafts') {
+    const method = init.method ?? 'GET'
+    const id = url.searchParams.get('id')
+    if (method === 'GET' && !id) return drafts as T
+    const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as {
+      id?: string
+      reply_to?: unknown
+      subject?: string
+      body?: string
+    }
+    if (method === 'POST') {
+      const d: Draft = {
+        id: String(draftSeq++),
+        account: 'me@example.com',
+        to: body.reply_to ? [{ name: 'YOUTRUST', address: 'hello@youtrust.jp' }] : [],
+        cc: [],
+        bcc: [],
+        subject: body.reply_to
+          ? 'Re: 中川 こころさん他19名があなたのプロフィールに注目しています'
+          : (body.subject ?? ''),
+        body: body.reply_to
+          ? '\n\n2026/10/1 11:14 YOUTRUST <hello@youtrust.jp>:\n> 本文の引用です。\n'
+          : (body.body ?? ''),
+        replyToMessageId: null,
+        inReplyTo: null,
+        status: 'draft',
+        error: null,
+        createdBy: 'web:mailhub Web',
+        updatedAt: new Date().toISOString(),
+        sentAt: null,
+      }
+      drafts = [d, ...drafts]
+      return d as T
+    }
+    const target = id ?? String(body.id)
+    const d = drafts.find((x) => x.id === target)!
+    if (method === 'GET') return d as T
+    if (method === 'PATCH') {
+      Object.assign(d, {
+        subject: body.subject ?? d.subject,
+        body: body.body ?? d.body,
+        updatedAt: new Date().toISOString(),
+      })
+      return d as T
+    }
+    drafts = drafts.filter((x) => x.id !== target)
+    return { deleted: target } as T
+  }
+  if (tail === 'send') {
+    await new Promise((r) => setTimeout(r, 1500))
+    const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as { id: string }
+    const d = drafts.find((x) => x.id === body.id)!
+    drafts = drafts.filter((x) => x.id !== body.id)
+    return { ...d, status: 'sent', sentAt: new Date().toISOString() } as T
   }
   if (tail === 'operations') {
     const list = (url.searchParams.get('ids') ?? '').split(',').map((id): Operation => {

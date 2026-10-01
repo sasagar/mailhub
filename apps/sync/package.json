@@ -14,10 +14,12 @@
   "dependencies": {
     "@mailhub/db": "workspace:*",
     "imapflow": "^2.1.2",
+    "nodemailer": "^10.0.13",
     "postal-mime": "^4.0.2",
     "tsx": "^4.23.15"
   },
   "devDependencies": {
-    "@types/node": "^24"
+    "@types/node": "^24",
+    "@types/nodemailer": "^8.0.2"
   }
 }

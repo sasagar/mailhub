@@ -2,7 +2,8 @@
 // 同意画面と Cloudflare Access のログインは MCP と共通で、権限（mail.read / mail.triage）も同じ仕組み
 const STORE = 'mailhub.auth'
 const PENDING = 'mailhub.auth.pending'
-const SCOPE = 'mail.read mail.triage'
+// 送信（mail.send）は Web 画面だけに与えられる権限。エージェントには付かない
+const SCOPE = 'mail.read mail.triage mail.send'
 
 type Stored = {
   clientId?: string
