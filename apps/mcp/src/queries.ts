@@ -182,6 +182,7 @@ export async function enqueueArchiveBySenders(
 export type SearchHit = {
   account: string
   mailbox: string
+  uid: number
   subject: string | null
   from: { name: string | null; address: string | null } | null
   receivedAt: string | null
@@ -219,4 +220,118 @@ export async function searchMail(
     if (row?.status === 'failed') throw new Error(`検索に失敗しました: ${row.error}`)
   }
   throw new Error('検索が 25 秒以内に終わりませんでした。条件を絞ってもう一度試してください')
+}
+
+// 本文を読むときのメールの指定。受信トレイのものは mailhub の ID、それ以外（検索結果）は所在で指定する
+export type MessageRef = { messageId: string } | { account: string; mailbox: string; uid: number }
+
+type Located = {
+  accountId: number
+  account: string
+  mailbox: string
+  uid: number
+  messageId: string | null
+  unread: boolean | null
+}
+
+async function locate(sql: Sql, ref: MessageRef): Promise<Located> {
+  if ('messageId' in ref) {
+    const [r] = await sql`
+      select m.id, m.account_id, a.email, b.path, m.uid, m.flags
+      from messages m join mailboxes b on b.id = m.mailbox_id join accounts a on a.id = m.account_id
+      where m.id = ${ref.messageId} and a.enabled`
+    if (!r) throw new Error('メールが見つかりません（受信トレイから移動した可能性）')
+    return {
+      accountId: r.account_id,
+      account: r.email,
+      mailbox: r.path,
+      uid: Number(r.uid),
+      messageId: String(r.id),
+      unread: !(r.flags as string[]).includes('\\Seen'),
+    }
+  }
+  const [a] = await sql`select id from accounts where email = ${ref.account} and enabled`
+  if (!a) throw new Error(`アカウント ${ref.account} はありません`)
+  return { accountId: a.id, account: ref.account, mailbox: ref.mailbox, uid: ref.uid, messageId: null, unread: null }
+}
+
+export type MessageBody = {
+  account: string
+  mailbox: string
+  uid: number
+  messageId: string | null
+  unread: boolean | null
+  headers: {
+    subject: string | null
+    from: { name: string | null; address: string | null } | null
+    to: { name: string | null; address: string | null }[]
+    cc: { name: string | null; address: string | null }[]
+    replyTo: { name: string | null; address: string | null }[]
+    date: string | null
+    messageId: string | null
+    inReplyTo: string | null
+    references: string | null
+  }
+  text: string
+  html: string | null
+  attachments: { index: number; filename: string; mimeType: string; size: number }[]
+}
+
+// 本文を返す。一時保存に無ければ同期デーモンに取得を頼んで待つ
+export async function getMessageBody(sql: Sql, ref: MessageRef, requestedBy: string): Promise<MessageBody> {
+  const loc = await locate(sql, ref)
+  const read = async () => {
+    const [b] = await sql`
+      select headers, text_body, html_body, attachments from message_bodies
+      where account_id = ${loc.accountId} and mailbox = ${loc.mailbox} and uid = ${loc.uid}`
+    return b
+  }
+  let body = await read()
+  if (!body) {
+    const [req] = await sql`
+      insert into requests (kind, account_id, params, requested_by)
+      values ('fetch_body', ${loc.accountId}, ${sql.json({ mailbox: loc.mailbox, uid: loc.uid })}, ${requestedBy})
+      returning id`
+    const deadline = Date.now() + 25_000
+    while (!body && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 300))
+      const [st] = await sql`select status, error from requests where id = ${req!.id}`
+      if (st?.status === 'failed') throw new Error(`本文を取得できませんでした: ${st.error}`)
+      if (st?.status === 'done') body = await read()
+    }
+    if (!body) throw new Error('本文の取得が 25 秒以内に終わりませんでした')
+  }
+  return {
+    account: loc.account,
+    mailbox: loc.mailbox,
+    uid: loc.uid,
+    messageId: loc.messageId,
+    unread: loc.unread,
+    headers: body.headers,
+    text: body.text_body ?? '',
+    html: body.html_body,
+    attachments: body.attachments,
+  }
+}
+
+// 既読にする（受信トレイのメールだけ）。実行は同期デーモン
+export async function enqueueMarkSeen(sql: Sql, opts: { messageIds: string[]; requestedBy: string }) {
+  const rows = await sql`
+    select m.account_id, m.mailbox_id, m.uid
+    from messages m join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
+    where m.id = any(${bigints(sql, opts.messageIds)}) and not ('\\Seen' = any(m.flags))`
+  const groups = Map.groupBy(rows, (r) => `${r.account_id}:${r.mailbox_id}`)
+  const ids: string[] = []
+  for (const list of groups.values()) {
+    const first = list[0]!
+    const [op] = await sql`
+      insert into operations (account_id, mailbox_id, kind, uids, requested_by)
+      values (${first.account_id}, ${first.mailbox_id}, 'mark_seen', ${bigints(
+        sql,
+        list.map((r) => r.uid),
+      )}, ${opts.requestedBy})
+      returning id`
+    ids.push(String(op!.id))
+  }
+  return { operations: ids, count: rows.length }
 }

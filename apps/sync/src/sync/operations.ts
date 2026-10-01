@@ -8,7 +8,7 @@ type Log = (msg: string) => void
 type Operation = {
   id: string
   mailboxId: number
-  kind: 'archive'
+  kind: 'archive' | 'mark_seen'
   uids: number[]
   params: { markSeen?: boolean }
 }
@@ -53,7 +53,7 @@ export async function runQueuedOperations(
     try {
       const result = await execute(sql, client, account, mailboxes, op)
       await sql`update operations set status = 'done', result = ${sql.json(result)}, finished_at = now() where id = ${op.id}`
-      log(`操作 #${op.id} ${op.kind}: ${result.moved} 通`)
+      log(`操作 #${op.id} ${op.kind}: ${'moved' in result ? result.moved : result.marked} 通`)
     } catch (err) {
       const message = (err as Error).message
       await sql`update operations set status = 'failed', error = ${message}, finished_at = now() where id = ${op.id}`
@@ -67,15 +67,22 @@ async function execute(sql: Sql, client: ImapFlow, account: Account, mailboxes: 
   const source = mailboxes.find((m) => m.id === op.mailboxId)
   if (!source) throw new Error(`mailbox ${op.mailboxId} はこのアカウントのものではありません`)
   if (op.uids.length === 0) return { moved: 0 }
+  if (client.mailbox === false || client.mailbox.path !== source.path) {
+    throw new Error(`${source.path} は選択中のフォルダではありません`)
+  }
+
+  if (op.kind === 'mark_seen') {
+    await client.messageFlagsAdd(op.uids, ['\\Seen'], { uid: true })
+    // 次の同期を待たずに一覧へ反映する
+    await sql`
+      update messages set flags = array_append(flags, '\\Seen')
+      where mailbox_id = ${source.id} and uid = any(${op.uids}::bigint[]) and not ('\\Seen' = any(flags))`
+    return { marked: op.uids.length }
+  }
 
   const target = archiveTarget(mailboxes, account.provider)
   if (!target) throw new Error('アーカイブ先のフォルダが見つかりません')
   if (target.id === source.id) throw new Error('アーカイブ先と移動元が同じです')
-
-  // 段階 1 では INBOX を開きっぱなしにしているので、それ以外が来たら断る
-  if (client.mailbox === false || client.mailbox.path !== source.path) {
-    throw new Error(`${source.path} は選択中のフォルダではありません`)
-  }
 
   // 既読は移動の前に付ける。移動すると移動先で UID が振り直され、元の UID では指定できなくなる
   if (op.params.markSeen) await client.messageFlagsAdd(op.uids, ['\\Seen'], { uid: true })

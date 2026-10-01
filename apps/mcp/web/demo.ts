@@ -1,5 +1,5 @@
 // 開発サーバーで ?demo を付けたときだけ使う見本データ。デザインの確認用で、本番のビルドには入らない
-import type { Message, MessagePage, Operation, Overview, Queued, SearchResult, Sender } from './types.ts'
+import type { Message, MessageBody, MessagePage, Operation, Overview, Queued, SearchResult, Sender } from './types.ts'
 
 const NAMES: [string, string, number, number][] = [
   ['＠IT通信 Special', 'atmarkit-mail@noreply.itmedia.co.jp', 176, 175],
@@ -110,6 +110,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       .map((m, i) => ({
         account: m.account,
         mailbox: '[Gmail]/すべてのメール',
+        uid: 1000 + i,
         subject: `${m.subject}（${q}）`,
         from: m.from,
         receivedAt: new Date(Date.now() - i * 86_400_000 * 40).toISOString(),
@@ -120,6 +121,38 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       }))
     const r: SearchResult = { hits, totals: [{ account: 'me@example.com', matched: 1284, error: null }] }
     return r as T
+  }
+  if (tail === 'mark-read') return { operations: [], count: 1 } as T
+  if (tail === 'message') {
+    await new Promise((r) => setTimeout(r, 600))
+    const id = url.searchParams.get('id')
+    const m = messagesOf().find((x) => x.id === id) ?? messagesOf()[0]!
+    const body: MessageBody = {
+      account: 'me@example.com',
+      mailbox: 'INBOX',
+      uid: 1,
+      messageId: id,
+      unread: m.unread,
+      headers: {
+        subject: m.subject,
+        from: m.from,
+        to: [{ name: 'わたし', address: 'me@example.com' }],
+        cc: [],
+        replyTo: [],
+        date: m.receivedAt,
+        messageId: '<demo@example.com>',
+        inReplyTo: null,
+        references: null,
+      },
+      text: 'テキスト版の本文です。',
+      html: `<div style="font-family:sans-serif"><h1 style="color:#c45">${m.subject}</h1>
+<p>いつもご利用いただきありがとうございます。本メールは見本です。</p>
+<p><img src="https://example.com/banner.png" alt="バナー" width="600" height="200"></p>
+<table style="width:100%;border-collapse:collapse"><tr><td style="border:1px solid #ccc;padding:8px">商品</td><td style="border:1px solid #ccc;padding:8px">¥1,980</td></tr></table>
+<p><a href="https://example.com/">詳しくはこちら</a></p></div>`,
+      attachments: [{ index: 0, filename: '領収書.pdf', mimeType: 'application/pdf', size: 182_000 }],
+    }
+    return body as T
   }
   if (tail === 'operations') {
     const list = (url.searchParams.get('ids') ?? '').split(',').map((id): Operation => {

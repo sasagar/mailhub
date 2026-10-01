@@ -21,6 +21,7 @@ export type Operation = {
 export type SearchHit = {
   account: string
   mailbox: string
+  uid: number
   subject: string | null
   from: { name: string | null; address: string | null } | null
   receivedAt: string | null
@@ -32,4 +33,27 @@ export type SearchHit = {
 export type SearchResult = {
   hits: SearchHit[]
   totals: { account: string; matched: number | null; error: string | null }[]
+}
+export type Addr = { name: string | null; address: string | null }
+export type MessageRef = { id: string } | { account: string; mailbox: string; uid: number }
+export type MessageBody = {
+  account: string
+  mailbox: string
+  uid: number
+  messageId: string | null
+  unread: boolean | null
+  headers: {
+    subject: string | null
+    from: Addr | null
+    to: Addr[]
+    cc: Addr[]
+    replyTo: Addr[]
+    date: string | null
+    messageId: string | null
+    inReplyTo: string | null
+    references: string | null
+  }
+  text: string
+  html: string | null
+  attachments: { index: number; filename: string; mimeType: string; size: number }[]
 }

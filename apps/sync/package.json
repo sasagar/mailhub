@@ -14,6 +14,7 @@
   "dependencies": {
     "@mailhub/db": "workspace:*",
     "imapflow": "^2.1.2",
+    "postal-mime": "^4.0.2",
     "tsx": "^4.23.15"
   },
   "devDependencies": {

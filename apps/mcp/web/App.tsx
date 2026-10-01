@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api, completeLoginIfReturning, isLoggedIn, LoggedOut, login } from './auth.ts'
 import { avatarHue, initial, n, senderName, when } from './format.ts'
-import type { Message, MessagePage, Overview, SearchResult, Sender } from './types.ts'
+import type { Message, MessagePage, MessageRef, Overview, SearchResult, Sender } from './types.ts'
 import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
+import { MessageView } from './MessageView.tsx'
 import { useFreshness } from './useFreshness.ts'
 import { usePullToRefresh } from './usePullToRefresh.ts'
 
@@ -72,6 +73,17 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { refresh, updateReady, applyUpdate } = useFreshness(reload)
   const [refreshing, setRefreshing] = useState(false)
   const pullState = usePullToRefresh(refresh)
+  // 開いているメール。iPhone の左端からのスワイプや「戻る」で閉じられるよう、履歴に積む
+  const [opened, setOpened] = useState<MessageRef | null>(null)
+  const openMessage = useCallback((ref: MessageRef) => {
+    history.pushState({ message: true }, '')
+    setOpened(ref)
+  }, [])
+  useEffect(() => {
+    const onPop = () => setOpened(null)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   const canTriage = overview?.me.scopes.includes('mail.triage') ?? false
   const accounts = overview?.accounts ?? []
   const scoped = account ? accounts.filter((a) => a.account === account) : accounts
@@ -160,14 +172,71 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
       )}
 
       {view === 'senders' && (
-        <Senders senders={senders} account={account} canTriage={canTriage} archive={archive} onError={guard} />
+        <Senders
+          senders={senders}
+          account={account}
+          canTriage={canTriage}
+          archive={archive}
+          onError={guard}
+          onOpen={openMessage}
+        />
       )}
       {view === 'timeline' && (
-        <Timeline account={account} canTriage={canTriage} archive={archive} version={version} onError={guard} />
+        <Timeline
+          account={account}
+          canTriage={canTriage}
+          archive={archive}
+          version={version}
+          onError={guard}
+          onOpen={openMessage}
+        />
       )}
-      {view === 'search' && <Search account={account} canTriage={canTriage} archive={archive} onError={guard} />}
+      {view === 'search' && (
+        <Search account={account} canTriage={canTriage} archive={archive} onError={guard} onOpen={openMessage} />
+      )}
 
       <Activity jobs={jobs} now={now} onDismiss={dismiss} />
+      {opened && <MessageView target={opened} onClose={() => history.back()} onError={guard} onMarkedRead={reload} />}
+    </div>
+  )
+}
+
+// 1 通分の行。アイコンを押すと選択、本文側を押すと開く
+function MessageRow(props: {
+  from: { name: string | null; address: string | null } | null
+  subject: string | null
+  receivedAt: string | null
+  badge?: string
+  selectable: boolean
+  selected: boolean
+  onToggle: () => void
+  onOpen: () => void
+}) {
+  const name = senderName(props.from)
+  return (
+    <div className="msg-row">
+      {props.selectable ? (
+        <button
+          className="avatar-button"
+          aria-pressed={props.selected}
+          aria-label={`${name}「${props.subject ?? ''}」を${props.selected ? '選択から外す' : '選ぶ'}`}
+          onClick={props.onToggle}
+        >
+          <Avatar name={name} seed={props.from?.address ?? ''} checked={props.selected} />
+        </button>
+      ) : (
+        <Avatar name={name} seed={props.from?.address ?? ''} />
+      )}
+      <button className="msg-open" onClick={props.onOpen}>
+        <span className="line">
+          <span className="who">{name}</span>
+          <time dateTime={props.receivedAt ?? undefined}>{when(props.receivedAt)}</time>
+        </span>
+        <span className="subject">
+          {props.badge && <span className="badge">{props.badge}</span>}
+          {props.subject || '（件名なし）'}
+        </span>
+      </button>
     </div>
   )
 }
@@ -272,6 +341,7 @@ function Senders(props: {
   canTriage: boolean
   archive: ArchiveFn
   onError: (err: unknown) => void
+  onOpen: (ref: MessageRef) => void
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState<Set<string>>(new Set())
@@ -376,6 +446,7 @@ function Senders(props: {
                   busy={busy.has(s.address)}
                   onArchiveKeepUnread={() => void run([s], false)}
                   onError={props.onError}
+                  onOpen={props.onOpen}
                 />
               )}
             </li>
@@ -406,6 +477,7 @@ function SenderDetail(props: {
   busy: boolean
   onArchiveKeepUnread: () => void
   onError: (err: unknown) => void
+  onOpen: (ref: MessageRef) => void
 }) {
   const [page, setPage] = useState<MessagePage | null>(null)
   useEffect(() => {
@@ -422,8 +494,10 @@ function SenderDetail(props: {
         <ul className="subjects">
           {page.messages.map((m) => (
             <li key={m.id} className={m.unread ? 'is-unread' : ''}>
-              <span className="subject">{m.subject || '（件名なし）'}</span>
-              <time dateTime={m.receivedAt ?? undefined}>{when(m.receivedAt)}</time>
+              <button className="subject-open" onClick={() => props.onOpen({ id: m.id })}>
+                <span className="subject">{m.subject || '（件名なし）'}</span>
+                <time dateTime={m.receivedAt ?? undefined}>{when(m.receivedAt)}</time>
+              </button>
             </li>
           ))}
           {page.total > page.messages.length && (
@@ -484,6 +558,7 @@ function Timeline(props: {
   archive: ArchiveFn
   version: number
   onError: (err: unknown) => void
+  onOpen: (ref: MessageRef) => void
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
   const [total, setTotal] = useState(0)
@@ -562,24 +637,19 @@ function Timeline(props: {
       ) : (
         <ol className="timeline">
           {messages.map((m) => (
-            <li key={m.id} className={m.unread ? 'is-unread' : ''}>
-              <label>
-                {props.canTriage && (
-                  <input
-                    className="visually-hidden"
-                    type="checkbox"
-                    checked={selected.has(m.id)}
-                    onChange={() => toggle(m.id)}
-                    aria-label={`${senderName(m.from)}「${m.subject ?? ''}」を選ぶ`}
-                  />
-                )}
-                <Avatar name={senderName(m.from)} seed={m.from?.address ?? ''} checked={selected.has(m.id)} />
-                <span className="line">
-                  <span className="who">{senderName(m.from)}</span>
-                  <time dateTime={m.receivedAt ?? undefined}>{when(m.receivedAt)}</time>
-                </span>
-                <span className="subject">{m.subject || '（件名なし）'}</span>
-              </label>
+            <li
+              key={m.id}
+              className={[m.unread ? 'is-unread' : '', selected.has(m.id) ? 'selected' : ''].join(' ').trim()}
+            >
+              <MessageRow
+                from={m.from}
+                subject={m.subject}
+                receivedAt={m.receivedAt}
+                selectable={props.canTriage}
+                selected={selected.has(m.id)}
+                onToggle={() => toggle(m.id)}
+                onOpen={() => props.onOpen({ id: m.id })}
+              />
             </li>
           ))}
         </ol>
@@ -607,7 +677,13 @@ function Timeline(props: {
 }
 
 // すべてのメールをメールサーバー側で検索する（Gmail は Gmail の検索式、本文も対象）
-function Search(props: { account: string; canTriage: boolean; archive: ArchiveFn; onError: (err: unknown) => void }) {
+function Search(props: {
+  account: string
+  canTriage: boolean
+  archive: ArchiveFn
+  onError: (err: unknown) => void
+  onOpen: (ref: MessageRef) => void
+}) {
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<SearchResult | null>(null)
   const [searching, setSearching] = useState<{ query: string; started: number } | null>(null)
@@ -706,44 +782,29 @@ function Search(props: { account: string; canTriage: boolean; archive: ArchiveFn
           </p>
           {result.hits.length > 0 && (
             <ol className="timeline">
-              {result.hits.map((h, i) => {
-                const selectable = props.canTriage && h.messageId != null
-                const body = (
-                  <>
-                    <Avatar
-                      name={senderName(h.from)}
-                      seed={h.from?.address ?? ''}
-                      checked={h.messageId != null && selected.has(h.messageId)}
-                    />
-                    <span className="line">
-                      <span className="who">{senderName(h.from)}</span>
-                      <time dateTime={h.receivedAt ?? undefined}>{when(h.receivedAt)}</time>
-                    </span>
-                    <span className="subject">
-                      {h.inInbox && <span className="badge">受信トレイ</span>}
-                      {h.subject || '（件名なし）'}
-                    </span>
-                  </>
-                )
-                return (
-                  <li key={`${h.account}:${h.gmThreadId}:${i}`} className={h.unread ? 'is-unread' : ''}>
-                    {selectable ? (
-                      <label>
-                        <input
-                          className="visually-hidden"
-                          type="checkbox"
-                          checked={selected.has(h.messageId!)}
-                          onChange={() => toggle(h.messageId!)}
-                          aria-label={`${senderName(h.from)}「${h.subject ?? ''}」を選ぶ`}
-                        />
-                        {body}
-                      </label>
-                    ) : (
-                      <div className="row">{body}</div>
-                    )}
-                  </li>
-                )
-              })}
+              {result.hits.map((h, i) => (
+                <li
+                  key={`${h.account}:${h.mailbox}:${h.uid}:${i}`}
+                  className={[h.unread ? 'is-unread' : '', h.messageId && selected.has(h.messageId) ? 'selected' : '']
+                    .join(' ')
+                    .trim()}
+                >
+                  <MessageRow
+                    from={h.from}
+                    subject={h.subject}
+                    receivedAt={h.receivedAt}
+                    badge={h.inInbox ? '受信トレイ' : undefined}
+                    selectable={props.canTriage && h.messageId != null}
+                    selected={h.messageId != null && selected.has(h.messageId)}
+                    onToggle={() => h.messageId && toggle(h.messageId)}
+                    onOpen={() =>
+                      props.onOpen(
+                        h.messageId ? { id: h.messageId } : { account: h.account, mailbox: h.mailbox, uid: h.uid },
+                      )
+                    }
+                  />
+                </li>
+              ))}
             </ol>
           )}
         </>

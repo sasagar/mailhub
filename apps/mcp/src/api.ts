@@ -5,6 +5,8 @@ import { createSql, type Sql } from '@mailhub/db'
 import {
   enqueueArchive,
   enqueueArchiveBySenders,
+  enqueueMarkSeen,
+  getMessageBody,
   getOperations,
   inboxOverview,
   searchMail,
@@ -81,6 +83,29 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
         maxResults: Math.min(Number(q.get('limit') ?? 50) || 50, 200),
         requestedBy: `web:${props.clientName}`,
       }),
+    )
+  }
+  if (request.method === 'GET' && url.pathname === `${API_PREFIX}message`) {
+    need('mail.read')
+    const id = q.get('id')
+    const uid = Number(q.get('uid'))
+    const ref =
+      id && /^\d+$/.test(id)
+        ? { messageId: id }
+        : q.get('account') && q.get('mailbox') && uid > 0
+          ? { account: q.get('account')!, mailbox: q.get('mailbox')!, uid }
+          : null
+    if (!ref) throw new HttpError(400, 'id か、account・mailbox・uid を指定してください')
+    return json(await getMessageBody(sql, ref, `web:${props.clientName}`))
+  }
+  if (request.method === 'POST' && url.pathname === `${API_PREFIX}mark-read`) {
+    need('mail.triage')
+    const body = z
+      .object({ message_ids: z.array(numericId).min(1).max(2000) })
+      .safeParse(await request.json().catch(() => null))
+    if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
+    return json(
+      await enqueueMarkSeen(sql, { messageIds: body.data.message_ids, requestedBy: `web:${props.clientName}` }),
     )
   }
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}operations`) {

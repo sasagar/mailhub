@@ -1,13 +1,15 @@
 // メールサーバー側での検索。Worker が search_requests に積み、ここで実行して結果を書き戻す。
-// 同期に使っている接続（INBOX を IDLE で見張っている）は止めたくないので、検索ごとに別の接続を使う
+// 同期に使っている接続（INBOX を IDLE で見張っている）は止めたくないので、補助の接続を使う
 import type { SearchObject } from 'imapflow'
 import type { Sql } from '@mailhub/db'
 import type { Account } from './accounts.ts'
-import { imapClientFor } from './imap/client.ts'
+import { sideConnection } from './imap/side.ts'
 
 export type SearchHit = {
   account: string
   mailbox: string
+  // mailbox 内の UID。受信トレイに無いメールの本文を読むときに使う
+  uid: number
   subject: string | null
   from: { name: string | null; address: string | null } | null
   receivedAt: string | null
@@ -71,10 +73,7 @@ async function searchAccount(sql: Sql, account: Account, query: string, max: num
     ? { gmraw: query }
     : { or: [{ subject: query }, { from: query }, { body: query }] }
 
-  const client = await imapClientFor(account)
-  client.on('error', () => {})
-  await client.connect()
-  try {
+  return sideConnection(account).run(async (client) => {
     const found: Found[] = []
     let matched = 0
     for (const box of targets) {
@@ -103,6 +102,7 @@ async function searchAccount(sql: Sql, account: Account, query: string, max: num
             hit: {
               account: account.email,
               mailbox: box.path,
+              uid: m.uid,
               subject: m.envelope?.subject ?? null,
               from: from ? { name: from.name ?? null, address: from.address ?? null } : null,
               receivedAt: m.internalDate ? new Date(m.internalDate).toISOString() : null,
@@ -119,9 +119,7 @@ async function searchAccount(sql: Sql, account: Account, query: string, max: num
     }
     await attachInboxIds(sql, inboxId, found)
     return { hits: found.map((f) => f.hit), matched }
-  } finally {
-    await client.logout().catch(() => {})
-  }
+  })
 }
 
 // 結果 1 件と、受信トレイの ID を引くための手掛かり

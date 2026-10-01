@@ -1,6 +1,10 @@
+import { setDefaultResultOrder } from 'node:dns'
 import { ImapFlow } from 'imapflow'
 import type { Account } from '../accounts.ts'
 import { accessTokenFor, loadGoogleClient } from '../google.ts'
+
+// Gmail への IPv6 の経路が不安定なことがあり、接続に 20 秒以上かかった（IPv4 なら 2 秒前後）。IPv4 を優先する
+setDefaultResultOrder('ipv4first')
 
 type Target = Pick<Account, 'imapHost' | 'imapPort' | 'username'>
 type Credential = { pass: string } | { accessToken: string }

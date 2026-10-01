@@ -2,6 +2,7 @@ import { createSql } from '@mailhub/db'
 import { migrate } from '@mailhub/db/migrate'
 import { loadAccounts } from './accounts.ts'
 import { loadConfig } from './config.ts'
+import { runRequest } from './requests.ts'
 import { runSearchRequest } from './search.ts'
 import { AccountSync } from './sync/account.ts'
 
@@ -32,6 +33,17 @@ const enqueueSearch = (id: string) => {
 await sql`update search_requests set status = 'failed', error = '同期デーモンが止まっていました', finished_at = now()
   where status in ('queued', 'running')`
 await sql.listen('mailhub_search', (payload) => enqueueSearch(payload))
+
+// 本文の取得などの依頼（payload は依頼の ID）。開いた人が待っているので検索とは別の列で流す
+let requests = Promise.resolve()
+const enqueueRequest = (id: string) => {
+  requests = requests
+    .then(() => runRequest(sql, accounts, id, log))
+    .catch((err: Error) => log(`依頼失敗: ${err.message}`))
+}
+await sql`update requests set status = 'failed', error = '同期デーモンが止まっていました', finished_at = now()
+  where status in ('queued', 'running')`
+await sql.listen('mailhub_requests', (payload) => enqueueRequest(payload))
 
 const shutdown = async () => {
   console.log('停止中…')

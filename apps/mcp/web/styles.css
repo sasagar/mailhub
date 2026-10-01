@@ -933,3 +933,228 @@ body {
 .pull svg {
   transition: transform 120ms;
 }
+/* 行: アイコン（選択）と本文側（開く）の 2 つのボタン */
+.msg-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  align-items: center;
+  padding: 11px 14px;
+}
+.msg-open {
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.msg-open .line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.msg-open .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-open time {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.msg-open .subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+.timeline .is-unread .msg-open .who,
+.timeline .is-unread .msg-open .subject {
+  color: var(--ink);
+  font-weight: 600;
+}
+.timeline .is-unread .msg-open .who::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 6px 1px 0;
+  border-radius: 50%;
+  background: var(--ai);
+}
+.timeline > li.selected {
+  background: var(--ai-wash);
+}
+.subject-open {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+}
+
+/* メールを開いたときの全画面シート */
+html.sheet-open,
+html.sheet-open body {
+  overflow: hidden;
+}
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--paper);
+  animation: slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+.sheet-bar {
+  display: flex;
+  align-items: center;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 1px 0 var(--line);
+}
+.back {
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--ai);
+  font-size: 16px;
+  font-weight: 600;
+}
+.sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px calc(40px + env(safe-area-inset-bottom));
+}
+.message {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.message-subject {
+  margin: 18px 0 12px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+.message-meta {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.message-from {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  margin: 0;
+}
+.message-from span,
+.message-date {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.message-rcpt {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.message-rcpt summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.message-rcpt dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 6px 0 0;
+}
+.message-rcpt dt {
+  color: var(--ink-faint);
+}
+.message-rcpt dd {
+  margin: 0;
+  word-break: break-all;
+}
+.message-tools {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.message-frame {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+}
+.message-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 1.75;
+}
+.attachments {
+  margin-top: 20px;
+}
+.attachments h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.attachments ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.attachments li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--sheet);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+}
+.att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.att-size {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}

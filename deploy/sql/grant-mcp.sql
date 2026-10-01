@@ -17,3 +17,8 @@ grant usage on sequence operations_id_seq to mailhub_mcp;
 -- 検索の依頼を積み、結果を読む（実行は同期デーモン）
 grant select, insert on search_requests to mailhub_mcp;
 grant usage on sequence search_requests_id_seq to mailhub_mcp;
+
+-- 本文の取得などを頼み、結果を読む（実行は同期デーモン）。解析済みの本文は読むだけ
+grant select, insert on requests to mailhub_mcp;
+grant usage on sequence requests_id_seq to mailhub_mcp;
+grant select on message_bodies to mailhub_mcp;

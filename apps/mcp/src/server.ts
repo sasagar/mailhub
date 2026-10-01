@@ -9,6 +9,8 @@ import { authHandler } from './auth/handler.ts'
 import {
   enqueueArchive,
   enqueueArchiveBySenders,
+  enqueueMarkSeen,
+  getMessageBody,
   getOperations,
   inboxOverview,
   listMessages,
@@ -122,6 +124,43 @@ function createServer(sql: Sql, props: Props) {
     )
 
     server.registerTool(
+      'read_message',
+      {
+        description:
+          'メールの本文とヘッダー（宛先・CC・日時・Message-ID など）を読む。受信トレイのメールは message_id（list_messages や search_mail の messageId）で、' +
+          '受信トレイに無いメール（search_mail の結果）は account・mailbox・uid で指定する。本文はテキスト（HTML メールはテキストに直したもの）。' +
+          '長い本文は max_chars で切る。既読にはしない（必要なら mark_read）。',
+        inputSchema: {
+          message_id: z.string().regex(/^\d+$/).optional(),
+          account: z.string().optional(),
+          mailbox: z.string().optional(),
+          uid: z.number().int().positive().optional(),
+          max_chars: z.number().int().min(200).max(100_000).default(20_000),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async (a) => {
+        requireScope('mail.read')
+        const ref = a.message_id
+          ? { messageId: a.message_id }
+          : a.account && a.mailbox && a.uid
+            ? { account: a.account, mailbox: a.mailbox, uid: a.uid }
+            : null
+        if (!ref) throw new Error('message_id か、account・mailbox・uid の組を指定してください')
+        const body = await getMessageBody(sql, ref, `mcp:${props.clientName}`)
+        const truncated = body.text.length > a.max_chars
+        return json({
+          ...body,
+          html: undefined,
+          text: truncated
+            ? `${body.text.slice(0, a.max_chars)}\n…（以下 ${body.text.length - a.max_chars} 文字省略）`
+            : body.text,
+          truncated,
+        })
+      },
+    )
+
+    server.registerTool(
       'get_operations',
       {
         description: 'archive_messages で積んだ操作の状況（queued / running / done / failed）と結果を返す。',
@@ -158,6 +197,20 @@ function createServer(sql: Sql, props: Props) {
             requestedBy: `mcp:${props.clientName}`,
           }),
         )
+      },
+    )
+
+    server.registerTool(
+      'mark_read',
+      {
+        description:
+          '受信トレイのメールを既読にする（アーカイブはしない）。id は list_messages や search_mail の messageId。',
+        inputSchema: { message_ids: z.array(z.string().regex(/^\d+$/)).min(1).max(2000) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        return json(await enqueueMarkSeen(sql, { messageIds: a.message_ids, requestedBy: `mcp:${props.clientName}` }))
       },
     )
 
