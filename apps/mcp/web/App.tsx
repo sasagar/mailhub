@@ -3,6 +3,7 @@ import { api, completeLoginIfReturning, isLoggedIn, LoggedOut, login } from './a
 import { avatarHue, initial, n, senderName, when } from './format.ts'
 import type { Message, MessagePage, Overview, SearchResult, Sender } from './types.ts'
 import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
+import { useFreshness } from './useFreshness.ts'
 
 type View = 'senders' | 'timeline' | 'search'
 
@@ -67,6 +68,8 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [account, version, guard])
 
   const { archive, jobs, now, dismiss } = useArchive(reload)
+  const { refresh, updateReady, applyUpdate } = useFreshness(reload)
+  const [refreshing, setRefreshing] = useState(false)
   const canTriage = overview?.me.scopes.includes('mail.triage') ?? false
   const accounts = overview?.accounts ?? []
   const scoped = account ? accounts.filter((a) => a.account === account) : accounts
@@ -76,8 +79,38 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <div className="app">
       <header className="top">
+        {updateReady && (
+          <p className="update-banner">
+            新しい版があります
+            <button className="primary" onClick={applyUpdate}>
+              更新
+            </button>
+          </p>
+        )}
         <div className="top-line">
-          <h1>mailhub</h1>
+          <div className="brand">
+            <h1>mailhub</h1>
+            <button
+              className={refreshing ? 'refresh spinning' : 'refresh'}
+              aria-label="最新の状態に更新"
+              onClick={() => {
+                setRefreshing(true)
+                refresh()
+                setTimeout(() => setRefreshing(false), 900)
+              }}
+            >
+              <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+                <path
+                  d="M16 10a6 6 0 1 1-1.76-4.24M16 3.5v3.5h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
           <p className="totals" aria-live="polite">
             {overview ? (
               <>
