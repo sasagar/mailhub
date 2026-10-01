@@ -154,3 +154,23 @@ export async function getOperations(sql: Sql, ids: string[]) {
     finishedAt: r.finished_at?.toISOString() ?? null,
   }))
 }
+
+// 差出人単位でアーカイブを積む（Web 画面の「この差出人をまとめて」用）。ID をブラウザから送らずに済む
+export async function enqueueArchiveBySender(
+  sql: Sql,
+  opts: { address: string; account?: string; markSeen: boolean; requestedBy: string },
+) {
+  const rows = await sql`
+    select m.id
+    from messages m
+    join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
+    join accounts a on a.id = m.account_id and a.enabled
+    where lower(m.from_addr -> 0 ->> 'address') = lower(${opts.address})
+      ${opts.account ? sql`and a.email = ${opts.account}` : sql``}`
+  if (rows.length === 0) return { operations: [], notFound: [] }
+  return enqueueArchive(sql, {
+    messageIds: rows.map((r) => String(r.id)),
+    markSeen: opts.markSeen,
+    requestedBy: opts.requestedBy,
+  })
+}

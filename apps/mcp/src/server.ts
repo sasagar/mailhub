@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/server'
 import { createMcpHandler } from 'agents/mcp/server'
 import { z } from 'zod'
 import { createSql, type Sql } from '@mailhub/db'
+import { API_PREFIX, restApi } from './api.ts'
 import { authHandler } from './auth/handler.ts'
 import { enqueueArchive, getOperations, inboxOverview, listMessages, senderSummary } from './queries.ts'
 import { SCOPES, type Props, type Scope } from './scopes.ts'
@@ -158,8 +159,16 @@ const mcpApi = {
 }
 
 export default new OAuthProvider({
+  // MCP（エージェント）と Web 画面の API（/mcp/api/*）は同じトークンで守る。
+  // トークンの宛先（resource）は /mcp の 1 つだけにし、保護するパスはすべてその配下に置く。
+  // MCP クライアントは宛先として MCP サーバーの URL を送ってくるので、宛先を変えると繋がらなくなる
   apiRoute: '/mcp',
-  apiHandler: mcpApi,
+  apiHandler: {
+    fetch(request: Request, env: Env, ctx: ExecutionContext) {
+      const api = new URL(request.url).pathname.startsWith(API_PREFIX)
+      return api ? restApi.fetch(request, env, ctx) : mcpApi.fetch(request, env, ctx)
+    },
+  },
   defaultHandler: authHandler,
   authorizeEndpoint: '/authorize',
   tokenEndpoint: '/token',

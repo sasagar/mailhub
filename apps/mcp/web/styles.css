@@ -1,0 +1,462 @@
+/* 紙・墨・藍。片付ける道具なので、色は「残っている量」と「操作」にだけ使う */
+:root {
+  --paper: #f6f7f5;
+  --sheet: #ffffff;
+  --ink: #1e2226;
+  --ink-soft: #5c636a;
+  --line: #e1e4e0;
+  --ai: #2c3e73;
+  --ai-1: #3e5491;
+  --ai-2: #6a7db3;
+  --ai-3: #a5b2d6;
+  --rest: #d5d9de;
+  --moss: #58744f;
+  --alert: #a3402e;
+  --focus: #2c3e73;
+  --radius: 10px;
+  --font: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'BIZ UDPGothic', 'Yu Gothic UI', system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15181c;
+    --sheet: #1c2025;
+    --ink: #e6e8ea;
+    --ink-soft: #9aa1a8;
+    --line: #2b3036;
+    --ai: #8fa3e0;
+    --ai-1: #7286c8;
+    --ai-2: #56689f;
+    --ai-3: #3e4b75;
+    --rest: #353b42;
+    --moss: #8fb586;
+    --alert: #e0846f;
+    --focus: #8fa3e0;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+  font-feature-settings: 'palt';
+}
+b,
+.count,
+.totals {
+  font-variant-numeric: tabular-nums;
+}
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 16px calc(96px + env(safe-area-inset-bottom));
+}
+
+/* 上部: 名前、残り件数、内訳の帯 */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+  padding: calc(14px + env(safe-area-inset-top)) 0 10px;
+}
+.top-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.top h1 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+.totals {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.totals b {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+  margin-right: 1px;
+}
+.totals .sep {
+  margin: 0 6px;
+  color: var(--line);
+}
+
+.composition {
+  display: flex;
+  height: 14px;
+  margin: 10px 0 12px;
+  border-radius: 3px;
+  overflow: hidden;
+  gap: 1px;
+  background: var(--paper);
+}
+.composition.empty {
+  background: var(--rest);
+}
+.seg {
+  min-width: 2px;
+  flex-basis: 0;
+  transition: flex-grow 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.seg[data-shade='0'] {
+  background: var(--ai);
+}
+.seg[data-shade='1'] {
+  background: var(--ai-1);
+}
+.seg[data-shade='2'] {
+  background: var(--ai-2);
+}
+.seg[data-shade='3'] {
+  background: var(--ai-3);
+}
+.seg.rest {
+  background: var(--rest);
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.tabs {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--sheet);
+}
+.tabs button {
+  border: 0;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.tabs button[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+select {
+  border: 1px solid var(--line);
+  background: var(--sheet);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+/* ボタン */
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.primary {
+  border: 0;
+  background: var(--ai);
+  color: #fff;
+  border-radius: 8px;
+  padding: 7px 12px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+@media (prefers-color-scheme: dark) {
+  .primary {
+    color: #10131a;
+  }
+}
+.primary.armed {
+  background: var(--alert);
+}
+.quiet {
+  border: 1px solid var(--line);
+  background: var(--sheet);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* 差出人ごと: 行で並べる。カードにするのは展開した中身だけ */
+.senders,
+.timeline,
+.subjects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.senders > li {
+  border-bottom: 1px solid var(--line);
+}
+.senders > li.busy {
+  opacity: 0.5;
+}
+.sender-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+}
+.sender-main {
+  display: grid;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  min-width: 0;
+}
+.sender-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sender-address {
+  font-size: 12px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.count {
+  display: grid;
+  justify-items: end;
+  line-height: 1.3;
+}
+.count b {
+  font-size: 17px;
+}
+.count .unread {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.detail {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.subjects {
+  width: 100%;
+}
+.subjects li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.subjects li.is-unread {
+  color: var(--ink);
+}
+.subjects .subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subjects time {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.subjects .more {
+  color: var(--ink-soft);
+}
+
+/* 新しい順 */
+.timeline-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0 4px;
+  font-size: 13px;
+}
+.timeline > li {
+  border-bottom: 1px solid var(--line);
+}
+.timeline label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  padding: 9px 0;
+  cursor: pointer;
+}
+.timeline input {
+  grid-row: span 2;
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ai);
+}
+.timeline .line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.timeline .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline time {
+  flex: none;
+  font-size: 12px;
+}
+.timeline .subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+.timeline .is-unread .who,
+.timeline .is-unread .subject {
+  color: var(--ink);
+  font-weight: 600;
+}
+.load-more {
+  display: block;
+  margin: 14px auto;
+}
+
+.selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(728px, calc(100% - 32px));
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(20, 30, 60, 0.14);
+}
+.selection-bar span {
+  flex: 1;
+  font-size: 13px;
+}
+
+/* お知らせ */
+.notice {
+  color: var(--ink-soft);
+  padding: 24px 0;
+}
+.notice.error {
+  color: var(--alert);
+}
+.muted {
+  color: var(--ink-soft);
+  margin: 0;
+  font-size: 13px;
+}
+.toasts {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  width: min(728px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 3;
+}
+.toast {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  background: var(--moss);
+}
+.toast.error {
+  background: var(--alert);
+}
+@media (prefers-color-scheme: dark) {
+  .toast {
+    color: #10131a;
+  }
+}
+
+/* ログイン前 */
+.signin {
+  max-width: 420px;
+  margin: 18vh auto 0;
+  padding: 0 16px;
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.signin h1 {
+  margin: 0;
+  font-size: 28px;
+}
+.signin p {
+  margin: 0;
+  color: var(--ink-soft);
+}
+.signin .signin-error {
+  color: var(--alert);
+}
+.signin .primary {
+  font-size: 15px;
+  padding: 10px 22px;
+}
+
+@media (max-width: 520px) {
+  .sender-row {
+    grid-template-columns: 1fr auto;
+  }
+  .sender-row .primary {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg {
+    transition: none;
+  }
+}
