@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>プライバシーポリシー | mailhub</title>
+<link rel="stylesheet" href="/page.css">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<main>
+  <h1>プライバシーポリシー</h1>
+  <p class="lead">最終更新日: 2026 年 10 月 1 日</p>
+
+  <h2>対象</h2>
+  <p>mailhub（以下「本アプリ」）は、作者本人が自分のメールアカウントを整理するための個人用アプリケーションです。本アプリを利用できるのは作者本人のみで、第三者には提供していません。</p>
+
+  <h2>取得する情報</h2>
+  <p>本アプリは、作者本人が許可したメールアカウント（Google アカウントを含む）に IMAP / SMTP で接続し、次の情報を扱います。</p>
+  <ul>
+    <li>メールの件名・差出人・宛先・日時・フラグ（既読など）・ラベル</li>
+    <li>作者が開いたメールの本文と添付ファイルの情報</li>
+    <li>接続のための認証情報（アプリパスワード、または OAuth の更新用トークン）</li>
+  </ul>
+
+  <h2>利用目的</h2>
+  <p>取得した情報は、作者本人がメールを一覧・検索・閲覧・整理（アーカイブ・既読など）・送信するためだけに使います。広告、プロファイリング、販売、機械学習モデルの学習には使いません。</p>
+
+  <h2>保存と保護</h2>
+  <ul>
+    <li>情報は作者が管理するサーバー（データベース）に保存します。本文の一時保存は 7 日で削除します。</li>
+    <li>認証情報は AES-256-GCM で暗号化して保存し、復号の鍵はデータベースとは別の場所に置きます。</li>
+    <li>本アプリへのアクセスは、作者本人の認証（Cloudflare Access）を通った場合のみ許可します。</li>
+  </ul>
+
+  <h2>第三者への提供</h2>
+  <p>取得した情報を第三者に販売・提供することはありません。作者本人が許可した AI アシスタントに対しては、作者の指示に応じて必要な範囲の情報を渡すことがあります。</p>
+
+  <h2>Google ユーザーデータの扱い</h2>
+  <p>本アプリによる Google API から取得した情報の利用と他のアプリへの転送は、<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API サービスのユーザーデータに関するポリシー</a>（限定使用の要件を含む）に従います。</p>
+
+  <h2>削除</h2>
+  <p>アカウントの連携を解除すると、そのアカウントの情報と認証情報を削除します。Google アカウントの<a href="https://myaccount.google.com/permissions">サードパーティ アクセスの管理</a>から、いつでもアクセスを取り消せます。</p>
+
+  <h2>お問い合わせ</h2>
+  <p><a href="https://github.com/sasagar/mailhub/issues">GitHub の Issues</a> からご連絡ください。</p>
+
+  <footer>
+    <a href="/about">mailhub について</a>
+  </footer>
+</main>
+</body>
+</html>
