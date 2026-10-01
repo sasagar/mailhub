@@ -1,37 +1,50 @@
-/* 紙・墨・藍。片付ける道具なので、色は「残っている量」と「操作」にだけ使う */
+/*
+ * mailhub — 受信トレイを差出人ごとに片付ける道具。
+ * 澄んだ藍を操作の色に、残っている量を示す内訳の帯を唯一の見せ場にする。
+ * それ以外は面と余白で整理し、装飾は足さない。
+ */
 :root {
-  --paper: #f6f7f5;
+  --paper: #f3f4f7;
   --sheet: #ffffff;
-  --ink: #1e2226;
-  --ink-soft: #5c636a;
-  --line: #e1e4e0;
-  --ai: #2c3e73;
-  --ai-1: #3e5491;
-  --ai-2: #6a7db3;
-  --ai-3: #a5b2d6;
-  --rest: #d5d9de;
-  --moss: #58744f;
-  --alert: #a3402e;
-  --focus: #2c3e73;
-  --radius: 10px;
-  --font: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'BIZ UDPGothic', 'Yu Gothic UI', system-ui, sans-serif;
+  --ink: #14161a;
+  --ink-soft: #6a707b;
+  --ink-faint: #9aa0aa;
+  --line: #e5e7ec;
+  --ai: #3b4bd8;
+  --ai-1: #5b69e2;
+  --ai-2: #8a95ec;
+  --ai-3: #c2c8f6;
+  --ai-wash: #eceefd;
+  --moss: #23865a;
+  --alert: #d4463a;
+  --glass: rgba(243, 244, 247, 0.78);
+  --shadow: 0 1px 2px rgba(20, 24, 40, 0.04), 0 8px 24px rgba(20, 24, 40, 0.06);
+  --avatar-l: 58%;
+  --avatar-s: 52%;
+  --font:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'BIZ UDPGothic',
+    'Segoe UI', 'Yu Gothic UI', system-ui, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #15181c;
-    --sheet: #1c2025;
-    --ink: #e6e8ea;
-    --ink-soft: #9aa1a8;
-    --line: #2b3036;
-    --ai: #8fa3e0;
-    --ai-1: #7286c8;
-    --ai-2: #56689f;
-    --ai-3: #3e4b75;
-    --rest: #353b42;
-    --moss: #8fb586;
-    --alert: #e0846f;
-    --focus: #8fa3e0;
+    --paper: #0d0f13;
+    --sheet: #171a20;
+    --ink: #eceef2;
+    --ink-soft: #9ba1ab;
+    --ink-faint: #6a707b;
+    --line: #262a32;
+    --ai: #8e9bff;
+    --ai-1: #7380ee;
+    --ai-2: #5662c9;
+    --ai-3: #39418c;
+    --ai-wash: #1d2140;
+    --moss: #4cc28b;
+    --alert: #ff7a6b;
+    --glass: rgba(13, 15, 19, 0.72);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --avatar-l: 46%;
+    --avatar-s: 45%;
     color-scheme: dark;
   }
 }
@@ -48,8 +61,10 @@ body {
   color: var(--ink);
   font-family: var(--font);
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.55;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
   font-feature-settings: 'palt';
 }
 b,
@@ -63,69 +78,105 @@ input {
   font: inherit;
   color: inherit;
 }
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
 :focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--ai);
   outline-offset: 2px;
+  border-radius: 8px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .app {
   max-width: 760px;
   margin: 0 auto;
-  padding: 0 16px calc(96px + env(safe-area-inset-bottom));
+  padding: 0 16px calc(110px + env(safe-area-inset-bottom));
 }
 
-/* 上部: 名前、残り件数、内訳の帯 */
+/* 上部: すりガラス。スクロールした一覧が透けて見える */
 .top {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--paper);
-  padding: calc(14px + env(safe-area-inset-top)) 0 10px;
+  margin: 0 -16px;
+  padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
 }
 .top-line {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
 }
 .top h1 {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
   margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-soft);
 }
 .totals {
   margin: 0;
-  color: var(--ink-soft);
   font-size: 13px;
+  color: var(--ink-soft);
+  text-align: right;
 }
 .totals b {
   color: var(--ink);
-  font-size: 22px;
+  font-size: 30px;
   font-weight: 700;
-  margin-right: 1px;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-right: 2px;
 }
-.totals .sep {
-  margin: 0 6px;
-  color: var(--line);
+.totals {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+.totals .unread-total {
+  font-size: 12px;
+  color: var(--ai);
+  font-weight: 600;
 }
 
+/* 見せ場: 受信トレイの内訳。片付けるほど藍の部分が縮む */
+.composition-wrap {
+  margin: 14px 0 14px;
+}
 .composition {
   display: flex;
-  height: 14px;
-  margin: 10px 0 12px;
-  border-radius: 3px;
+  height: 10px;
+  gap: 2px;
+  border-radius: 999px;
   overflow: hidden;
-  gap: 1px;
-  background: var(--paper);
 }
 .composition.empty {
-  background: var(--rest);
+  background: var(--line);
+}
+.composition-wrap figcaption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
 }
 .seg {
-  min-width: 2px;
+  min-width: 3px;
   flex-basis: 0;
-  transition: flex-grow 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: flex-grow 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .seg[data-shade='0'] {
   background: var(--ai);
@@ -140,7 +191,7 @@ input {
   background: var(--ai-3);
 }
 .seg.rest {
-  background: var(--rest);
+  background: var(--line);
 }
 
 .controls {
@@ -150,130 +201,216 @@ input {
   justify-content: space-between;
   flex-wrap: wrap;
 }
+/* iOS のセグメント風の切り替え */
 .tabs {
-  display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px;
-  background: var(--sheet);
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 .tabs button {
   border: 0;
   background: transparent;
-  padding: 5px 14px;
-  border-radius: 999px;
-  cursor: pointer;
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink-soft);
+  transition:
+    background 160ms,
+    color 160ms;
 }
 .tabs button[aria-selected='true'] {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--sheet);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(20, 24, 40, 0.12);
 }
 select {
-  border: 1px solid var(--line);
-  background: var(--sheet);
-  border-radius: 8px;
-  padding: 5px 8px;
+  border: 0;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
 }
 
 /* ボタン */
-button {
-  cursor: pointer;
-}
-button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
 .primary {
   border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
   background: var(--ai);
   color: #fff;
-  border-radius: 8px;
-  padding: 7px 12px;
-  white-space: nowrap;
   font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    transform 120ms,
+    background 160ms;
 }
 @media (prefers-color-scheme: dark) {
   .primary {
-    color: #10131a;
+    color: #0d0f13;
   }
+}
+.primary:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .primary.armed {
   background: var(--alert);
+  color: #fff;
+}
+.primary.is-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ai);
 }
 .quiet {
-  border: 1px solid var(--line);
-  background: var(--sheet);
-  border-radius: 8px;
-  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
   font-size: 13px;
-  color: var(--ink);
+  font-weight: 600;
+}
+.quiet:disabled {
+  opacity: 0.5;
 }
 
-/* 差出人ごと: 行で並べる。カードにするのは展開した中身だけ */
+/* 一覧は白い面にまとめ、区切り線は内側だけに引く */
 .senders,
-.timeline,
+.timeline {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  background: var(--sheet);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
 .subjects {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.senders > li {
-  border-bottom: 1px solid var(--line);
+.senders > li,
+.timeline > li {
+  position: relative;
 }
-.senders > li.busy {
-  opacity: 0.5;
+.senders > li + li::before,
+.timeline > li + li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 64px;
+  border-top: 1px solid var(--line);
 }
+
+/* 差出人の頭文字。差出人ごとに色が決まる */
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: hsl(var(--hue) var(--avatar-s) var(--avatar-l));
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  transition:
+    background 160ms,
+    transform 160ms;
+}
+.avatar.checked {
+  background: var(--ai);
+  transform: scale(0.94);
+}
+
+/* 差出人ごと: 1 行目 名前 … 件数 / 2 行目 アドレスと未読 … ボタン */
 .sender-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 12px;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    'avatar main count'
+    'avatar main action';
+  column-gap: 12px;
+  row-gap: 4px;
   align-items: center;
-  padding: 10px 0;
+  padding: 12px 14px;
+}
+.sender-row > .avatar {
+  grid-area: avatar;
 }
 .sender-main {
+  grid-area: main;
   display: grid;
-  text-align: left;
+  gap: 1px;
+  min-width: 0;
+  padding: 0;
   border: 0;
   background: none;
-  padding: 0;
-  min-width: 0;
+  text-align: left;
 }
 .sender-name {
-  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
-.sender-address {
+.sender-sub {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
   font-size: 12px;
   color: var(--ink-soft);
+}
+.sender-address {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.count {
-  display: grid;
-  justify-items: end;
-  line-height: 1.3;
+.sender-sub .unread {
+  flex: none;
+  color: var(--ai);
 }
-.count b {
-  font-size: 17px;
+.sender-row .count {
+  grid-area: count;
+  justify-self: end;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
-.count .unread {
-  font-size: 11px;
-  color: var(--ink-soft);
+.sender-row .primary {
+  grid-area: action;
+  justify-self: end;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+/* 行のボタンは普段は控えめに。確認待ち（armed）と実行中だけ塗る */
+.sender-row .primary:not(.armed):not(.is-busy) {
+  background: var(--ai-wash);
+  color: var(--ai);
+}
+.senders > li.busy .sender-main,
+.senders > li.busy .count,
+.senders > li.busy > .sender-row > .avatar {
+  opacity: 0.4;
 }
 
 .detail {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  background: var(--sheet);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
   display: grid;
   gap: 10px;
   justify-items: start;
+  margin: 0 14px 14px 62px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paper);
 }
 .subjects {
   width: 100%;
@@ -297,10 +434,7 @@ button:disabled {
 .subjects time {
   flex: none;
   font-size: 12px;
-  color: var(--ink-soft);
-}
-.subjects .more {
-  color: var(--ink-soft);
+  color: var(--ink-faint);
 }
 
 /* 新しい順 */
@@ -308,27 +442,25 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 0 4px;
+  padding: 2px 2px 10px;
   font-size: 13px;
-}
-.timeline > li {
-  border-bottom: 1px solid var(--line);
 }
 .timeline label {
   display: grid;
   grid-template-columns: auto 1fr;
-  column-gap: 10px;
-  padding: 9px 0;
+  grid-template-areas:
+    'avatar line'
+    'avatar subject';
+  column-gap: 12px;
+  align-items: center;
+  padding: 11px 14px;
   cursor: pointer;
 }
-.timeline input {
-  grid-row: span 2;
-  margin-top: 4px;
-  width: 18px;
-  height: 18px;
-  accent-color: var(--ai);
+.timeline .avatar {
+  grid-area: avatar;
 }
 .timeline .line {
+  grid-area: line;
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -343,8 +475,10 @@ button:disabled {
 .timeline time {
   flex: none;
   font-size: 12px;
+  color: var(--ink-faint);
 }
 .timeline .subject {
+  grid-area: subject;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -355,84 +489,225 @@ button:disabled {
   color: var(--ink);
   font-weight: 600;
 }
+/* 未読の印は件名の前の小さな点 */
+.timeline .is-unread .who::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 6px 1px 0;
+  border-radius: 50%;
+  background: var(--ai);
+}
+.timeline > li:has(input:checked) {
+  background: var(--ai-wash);
+}
 .load-more {
   display: block;
-  margin: 14px auto;
+  margin: 16px auto;
 }
 
+/* iOS 風のスイッチ */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch-track {
+  position: relative;
+  width: 36px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+  transition: background 160ms;
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 160ms;
+}
+.switch input:checked + .switch-track {
+  background: var(--ai);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(14px);
+}
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--ai);
+  outline-offset: 2px;
+}
+
+/* 下に出る面（選択中の操作・進行状況）もすりガラス */
 .selection-bar {
   position: fixed;
   left: 50%;
   bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 3;
   transform: translateX(-50%);
-  width: min(728px, calc(100% - 32px));
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 10px 12px;
-  background: var(--sheet);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 6px 24px rgba(20, 30, 60, 0.14);
+  width: min(728px, calc(100% - 24px));
+  padding: 10px 10px 10px 16px;
+  border-radius: 999px;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow:
+    var(--shadow),
+    inset 0 0 0 1px var(--line);
 }
 .selection-bar span {
   flex: 1;
   font-size: 13px;
 }
 
+/* 進行状況。PWA では押した後の様子が見えにくいので、終わるまで画面下に出し続ける */
+.activity {
+  position: fixed;
+  left: 50%;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 4;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 8px;
+  width: min(728px, calc(100% - 24px));
+}
+.job {
+  position: relative;
+  overflow: hidden;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: rgba(20, 22, 26, 0.88);
+  color: #fff;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 10px 30px rgba(10, 12, 30, 0.25);
+  animation: rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.job.done {
+  background: var(--moss);
+}
+.job.failed {
+  background: var(--alert);
+}
+@keyframes rise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+.job-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.job-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.job-phase {
+  flex: none;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.job-close {
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 12px;
+}
+.job-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  opacity: 0.95;
+}
+.progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--ai-2), transparent) no-repeat;
+  background-size: 40% 100%;
+  animation: sweep 1.2s ease-in-out infinite;
+}
+@keyframes sweep {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.85;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* お知らせ */
 .notice {
+  padding: 28px 4px;
   color: var(--ink-soft);
-  padding: 24px 0;
 }
 .notice.error {
   color: var(--alert);
 }
+.notice.error button {
+  margin-left: 8px;
+}
 .muted {
+  margin: 0;
+  font-size: 13px;
   color: var(--ink-soft);
-  margin: 0;
-  font-size: 13px;
-}
-.toasts {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(80px + env(safe-area-inset-bottom));
-  width: min(728px, calc(100% - 32px));
-  display: grid;
-  gap: 8px;
-  pointer-events: none;
-  z-index: 3;
-}
-.toast {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  color: #fff;
-  font-size: 13px;
-  background: var(--moss);
-}
-.toast.error {
-  background: var(--alert);
-}
-@media (prefers-color-scheme: dark) {
-  .toast {
-    color: #10131a;
-  }
 }
 
 /* ログイン前 */
 .signin {
-  max-width: 420px;
-  margin: 18vh auto 0;
-  padding: 0 16px;
   display: grid;
-  gap: 12px;
+  gap: 14px;
   justify-items: start;
+  max-width: 420px;
+  margin: 22vh auto 0;
+  padding: 0 24px;
 }
 .signin h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
 }
 .signin p {
   margin: 0;
@@ -442,21 +717,60 @@ button:disabled {
   color: var(--alert);
 }
 .signin .primary {
+  margin-top: 8px;
+  padding: 12px 28px;
   font-size: 15px;
-  padding: 10px 22px;
 }
 
-@media (max-width: 520px) {
-  .sender-row {
-    grid-template-columns: 1fr auto;
+@media (min-width: 720px) {
+  .app {
+    padding-top: 12px;
   }
-  .sender-row .primary {
-    grid-column: 1 / -1;
-    justify-self: end;
+  .totals b {
+    font-size: 34px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .seg {
+  .seg,
+  .avatar,
+  .tabs button {
     transition: none;
   }
+  .job {
+    animation: none;
+  }
+  .spinner,
+  .progress {
+    animation-duration: 3s;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  /* 暗い面の上では白い面が沈むので、選択中のタブは一段明るくする */
+  .tabs button[aria-selected='true'] {
+    background: #2b303a;
+  }
+}
+/* 進行状況: 1 行目に差出人名、2 行目に段階と秒数（狭い画面でも名前が切れないように） */
+.job-line {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    'spin label close'
+    'spin phase close';
+  column-gap: 10px;
+  row-gap: 1px;
+}
+.job-line .spinner {
+  grid-area: spin;
+}
+.job-label {
+  grid-area: label;
+}
+.job-phase {
+  grid-area: phase;
+  margin-left: 0;
+  font-size: 12px;
+}
+.job-close {
+  grid-area: close;
 }

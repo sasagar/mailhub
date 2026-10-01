@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api, completeLoginIfReturning, isLoggedIn, LoggedOut, login } from './auth.ts'
-import { n, senderName, when } from './format.ts'
+import { avatarHue, initial, n, senderName, when } from './format.ts'
 import type { Message, MessagePage, Overview, Sender } from './types.ts'
-import { useArchive } from './useArchive.ts'
+import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
 
 type View = 'senders' | 'timeline'
 
@@ -66,7 +66,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
       .catch(guard)
   }, [account, version, guard])
 
-  const { archive, toasts } = useArchive(reload)
+  const { archive, jobs, now, dismiss } = useArchive(reload)
   const canTriage = overview?.me.scopes.includes('mail.triage') ?? false
   const accounts = overview?.accounts ?? []
   const scoped = account ? accounts.filter((a) => a.account === account) : accounts
@@ -81,7 +81,10 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
           <p className="totals" aria-live="polite">
             {overview ? (
               <>
-                <b>{n(total)}</b> 通<span className="sep">／</span>未読 <b>{n(unread)}</b>
+                <span className="total-line">
+                  <b>{n(total)}</b> 通
+                </span>
+                <span className="unread-total">未読 {n(unread)}</span>
               </>
             ) : (
               '読み込み中'
@@ -123,13 +126,55 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
         <Timeline account={account} canTriage={canTriage} archive={archive} version={version} onError={guard} />
       )}
 
-      <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <p key={t.id} className={`toast ${t.tone}`}>
-            {t.text}
-          </p>
-        ))}
-      </div>
+      <Activity jobs={jobs} now={now} onDismiss={dismiss} />
+    </div>
+  )
+}
+
+// 差出人の頭文字の丸いアイコン。checked のときはチェックに変わる（新しい順で選んだとき）
+function Avatar({ name, seed, checked }: { name: string; seed: string; checked?: boolean }) {
+  return (
+    <span
+      className={checked ? 'avatar checked' : 'avatar'}
+      style={{ '--hue': avatarHue(seed) } as CSSProperties}
+      aria-hidden="true"
+    >
+      {checked ? '✓' : initial(name)}
+    </span>
+  )
+}
+
+// 画面下の進行状況。PWA では押した後に何が起きているか見えにくいので、段階と経過秒数を出し続ける
+function Activity({ jobs, now, onDismiss }: { jobs: Job[]; now: number; onDismiss: (id: number) => void }) {
+  if (jobs.length === 0) return null
+  return (
+    <div className="activity" aria-live="polite">
+      {jobs.map((j) => {
+        const finished = j.phase === 'done' || j.phase === 'failed'
+        const seconds = Math.max(0, Math.round((now - j.startedAt) / 1000))
+        return (
+          <div key={j.id} className={`job ${j.phase}`}>
+            <div className="job-line">
+              {!finished && <span className="spinner" aria-hidden="true" />}
+              <span className="job-label">{j.label}</span>
+              <span className="job-phase">
+                {j.phase === 'done'
+                  ? `${n(j.count ?? 0)} 通をアーカイブしました`
+                  : j.phase === 'failed'
+                    ? '失敗しました'
+                    : `${PHASE_LABEL[j.phase]}${j.count ? `（${n(j.count)} 通）` : ''}・${seconds} 秒`}
+              </span>
+              {j.phase === 'failed' && (
+                <button className="job-close" onClick={() => onDismiss(j.id)} aria-label="閉じる">
+                  閉じる
+                </button>
+              )}
+            </div>
+            {j.phase === 'failed' && <p className="job-error">{j.error}</p>}
+            {!finished && <span className="progress" aria-hidden="true" />}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -138,20 +183,27 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
 function Composition({ senders, total }: { senders: Sender[]; total: number }) {
   if (total === 0) return <div className="composition empty" />
   const top = senders.slice(0, 30)
-  const rest = Math.max(total - top.reduce((s, x) => s + x.total, 0), 0)
+  const topSum = top.reduce((s, x) => s + x.total, 0)
+  const rest = Math.max(total - topSum, 0)
+  const share = Math.round((topSum / total) * 100)
   return (
-    <div className="composition" role="img" aria-label={`受信トレイ ${n(total)} 通の差出人ごとの内訳`}>
-      {top.map((s, i) => (
-        <span
-          key={s.address}
-          className="seg"
-          data-shade={i % 4}
-          style={{ flexGrow: s.total }}
-          title={`${senderName(s)} ${n(s.total)} 通`}
-        />
-      ))}
-      {rest > 0 && <span className="seg rest" style={{ flexGrow: rest }} title={`その他 ${n(rest)} 通`} />}
-    </div>
+    <figure className="composition-wrap">
+      <div className="composition" role="img" aria-label={`受信トレイ ${n(total)} 通の差出人ごとの内訳`}>
+        {top.map((s, i) => (
+          <span
+            key={s.address}
+            className="seg"
+            data-shade={i % 4}
+            style={{ flexGrow: s.total }}
+            title={`${senderName(s)} ${n(s.total)} 通`}
+          />
+        ))}
+        {rest > 0 && <span className="seg rest" style={{ flexGrow: rest }} title={`その他 ${n(rest)} 通`} />}
+      </div>
+      <figcaption>
+        上位 {top.length} 件の差出人で {n(topSum)} 通（全体の {share}%）
+      </figcaption>
+    </figure>
   )
 }
 
@@ -185,23 +237,24 @@ function Senders(props: {
       {props.senders.map((s) => (
         <li key={s.address} className={busy.has(s.address) ? 'busy' : ''}>
           <div className="sender-row">
+            <Avatar name={senderName(s)} seed={s.address} />
             <button
               className="sender-main"
               aria-expanded={open === s.address}
               onClick={() => setOpen(open === s.address ? null : s.address)}
             >
               <span className="sender-name">{senderName(s)}</span>
-              <span className="sender-address">{s.address}</span>
+              <span className="sender-sub">
+                <span className="sender-address">{s.address}</span>
+                {s.unread > 0 && <span className="unread">未読 {n(s.unread)}</span>}
+              </span>
             </button>
-            <span className="count">
-              <b>{n(s.total)}</b>
-              {s.unread > 0 && <span className="unread">未読 {n(s.unread)}</span>}
-            </span>
+            <b className="count">{n(s.total)}</b>
             {props.canTriage && (
               <ConfirmButton
-                label="既読にしてアーカイブ"
-                confirmLabel={`${n(s.total)} 通を片付ける`}
-                busyLabel="処理中"
+                label="片付ける"
+                confirmLabel={`${n(s.total)} 通を既読にしてアーカイブ`}
+                busyLabel="片付け中"
                 busy={busy.has(s.address)}
                 onConfirm={() => void run(s, true)}
               />
@@ -278,7 +331,8 @@ function ConfirmButton(props: {
 
   if (props.busy) {
     return (
-      <button className="primary" disabled>
+      <button className="primary is-busy" disabled>
+        <span className="spinner" aria-hidden="true" />
         {props.busyLabel}
       </button>
     )
@@ -363,8 +417,10 @@ function Timeline(props: {
   return (
     <>
       <div className="timeline-tools">
-        <label>
-          <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} /> 未読だけ
+        <label className="switch">
+          <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />
+          <span className="switch-track" aria-hidden="true" />
+          未読だけ
         </label>
         {props.canTriage && messages.length > 0 && (
           <button
@@ -383,8 +439,15 @@ function Timeline(props: {
             <li key={m.id} className={m.unread ? 'is-unread' : ''}>
               <label>
                 {props.canTriage && (
-                  <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+                  <input
+                    className="visually-hidden"
+                    type="checkbox"
+                    checked={selected.has(m.id)}
+                    onChange={() => toggle(m.id)}
+                    aria-label={`${senderName(m.from)}「${m.subject ?? ''}」を選ぶ`}
+                  />
                 )}
+                <Avatar name={senderName(m.from)} seed={m.from?.address ?? ''} checked={selected.has(m.id)} />
                 <span className="line">
                   <span className="who">{senderName(m.from)}</span>
                   <time dateTime={m.receivedAt ?? undefined}>{when(m.receivedAt)}</time>

@@ -6,3 +6,4 @@ node_modules/
 # 個人の作業メモ（アカウントやインフラの詳細を含むので公開しない）
 docs/handoff.md
 dist/
+.playwright-mcp/

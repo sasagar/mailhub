@@ -129,7 +129,10 @@ async function refresh(): Promise<boolean> {
   })
 }
 
-export const isLoggedIn = () => Boolean(memory.accessToken || memory.refreshToken)
+// 開発サーバーで ?demo を付けたときは見本データで動かす（本番のビルドでは import.meta.env.DEV が false になり消える）
+export const demo = import.meta.env.DEV && new URLSearchParams(location.search).has('demo')
+
+export const isLoggedIn = () => demo || Boolean(memory.accessToken || memory.refreshToken)
 
 export function logout() {
   save({ clientId: memory.clientId })
@@ -137,6 +140,7 @@ export function logout() {
 
 // API を呼ぶ。期限切れなら更新し、それでも 401 なら未ログイン扱いにする
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (demo) return (await import('./demo.ts')).demoApi<T>(path, init)
   if (!memory.accessToken || (memory.expiresAt ?? 0) - 60_000 < Date.now()) await refresh()
   const send = () => {
     const headers = new Headers(init.headers)

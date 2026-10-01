@@ -1,49 +1,83 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './auth.ts'
 import type { Operation, Queued } from './types.ts'
 
-export type Toast = { id: number; text: string; tone: 'done' | 'error' }
+// アーカイブ 1 件の進み具合。画面下の進行状況の欄に出す
+export type Job = {
+  id: number
+  label: string
+  phase: 'sending' | 'queued' | 'running' | 'done' | 'failed'
+  startedAt: number
+  count?: number
+  error?: string
+}
 
-// アーカイブを積み、同期デーモンが IMAP で実行し終えるまで待つ。完了したら onDone を呼ぶ
+export const PHASE_LABEL: Record<Job['phase'], string> = {
+  sending: '依頼中',
+  queued: '順番待ち',
+  running: 'メールサーバーで移動中',
+  done: '完了',
+  failed: '失敗',
+}
+
+const DONE_VISIBLE_MS = 5000
+
+// アーカイブを積み、同期デーモンが IMAP で実行し終えるまで追いかける。完了したら onDone を呼ぶ
 export function useArchive(onDone: () => void) {
-  const [toasts, setToasts] = useState<Toast[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [now, setNow] = useState(Date.now())
 
-  const notify = useCallback((text: string, tone: Toast['tone']) => {
-    const id = Date.now() + Math.random()
-    setToasts((list) => [...list, { id, text, tone }])
-    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 6000)
+  // 経過秒数の表示用。動いている仕事があるときだけ時計を回す
+  const active = jobs.some((j) => j.phase !== 'done' && j.phase !== 'failed')
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(t)
+  }, [active])
+
+  const update = useCallback((id: number, patch: Partial<Job>) => {
+    setJobs((list) => list.map((j) => (j.id === id ? { ...j, ...patch } : j)))
+    if (patch.phase === 'done') {
+      setTimeout(() => setJobs((list) => list.filter((j) => j.id !== id)), DONE_VISIBLE_MS)
+    }
   }, [])
+
+  const dismiss = useCallback((id: number) => setJobs((list) => list.filter((j) => j.id !== id)), [])
 
   const archive = useCallback(
     async (body: Record<string, unknown>, label: string) => {
+      const id = Date.now() + Math.random()
+      setNow(Date.now())
+      setJobs((list) => [...list, { id, label, phase: 'sending', startedAt: Date.now() }])
       try {
         const queued = await api<Queued>('/mcp/api/archive', { method: 'POST', body: JSON.stringify(body) })
         const ids = queued.operations.map((o) => o.operationId)
         if (ids.length === 0) {
-          notify(`${label}は、もう受信トレイにありません`, 'done')
+          update(id, { phase: 'done', count: 0 })
           onDone()
           return
         }
+        update(id, { phase: 'queued', count: queued.operations.reduce((s, o) => s + o.count, 0) })
         // 実行は同期デーモン。だいたい数秒〜数十秒で終わる
-        for (let i = 0; i < 120; i++) {
+        for (let i = 0; i < 180; i++) {
           await new Promise((r) => setTimeout(r, 1000))
           const ops = await api<Operation[]>(`/mcp/api/operations?ids=${ids.join(',')}`)
+          if (ops.some((o) => o.status === 'running')) update(id, { phase: 'running' })
           if (ops.every((o) => o.status === 'done' || o.status === 'failed')) {
-            const failed = ops.filter((o) => o.status === 'failed')
-            const moved = ops.reduce((sum, o) => sum + (o.result?.moved ?? 0), 0)
-            if (failed.length > 0) notify(`${label}のアーカイブに失敗しました: ${failed[0]!.error}`, 'error')
-            else notify(`${label}の ${moved} 通をアーカイブしました`, 'done')
+            const failed = ops.find((o) => o.status === 'failed')
+            if (failed) update(id, { phase: 'failed', error: failed.error ?? '理由不明' })
+            else update(id, { phase: 'done', count: ops.reduce((s, o) => s + (o.result?.moved ?? 0), 0) })
             onDone()
             return
           }
         }
-        notify(`${label}のアーカイブがまだ終わっていません。少し待ってから更新してください`, 'error')
+        update(id, { phase: 'failed', error: '3 分たっても終わりませんでした。少し待ってから更新してください' })
       } catch (err) {
-        notify(`${label}のアーカイブを頼めませんでした: ${(err as Error).message}`, 'error')
+        update(id, { phase: 'failed', error: (err as Error).message })
       }
     },
-    [notify, onDone],
+    [onDone, update],
   )
 
-  return { archive, toasts }
+  return { archive, jobs, now, dismiss }
 }
