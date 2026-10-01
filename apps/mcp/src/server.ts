@@ -6,7 +6,14 @@ import { z } from 'zod'
 import { createSql, type Sql } from '@mailhub/db'
 import { API_PREFIX, restApi } from './api.ts'
 import { authHandler } from './auth/handler.ts'
-import { enqueueArchive, getOperations, inboxOverview, listMessages, senderSummary } from './queries.ts'
+import {
+  enqueueArchive,
+  enqueueArchiveBySenders,
+  getOperations,
+  inboxOverview,
+  listMessages,
+  senderSummary,
+} from './queries.ts'
 import { SCOPES, type Props, type Scope } from './scopes.ts'
 
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 1) }] })
@@ -118,6 +125,36 @@ function createServer(sql: Sql, props: Props) {
         return json(
           await enqueueArchive(sql, {
             messageIds: a.message_ids,
+            markSeen: a.mark_read,
+            requestedBy: `mcp:${props.clientName}`,
+          }),
+        )
+      },
+    )
+
+    server.registerTool(
+      'archive_senders',
+      {
+        description:
+          '指定した差出人（メールアドレス）から届いた受信トレイのメールを、まとめてアーカイブする。' +
+          'sender_summary で見つけたメルマガや通知を片付けるのに使う。動きは archive_messages と同じ（積んで、同期デーモンが実行する）。',
+        inputSchema: {
+          senders: z
+            .array(z.string().min(3))
+            .min(1)
+            .max(200)
+            .describe('差出人のメールアドレス（大文字小文字は区別しない）'),
+          account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
+          mark_read: z.boolean().default(false).describe('アーカイブの前に既読にする'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        return json(
+          await enqueueArchiveBySenders(sql, {
+            addresses: a.senders,
+            account: a.account,
             markSeen: a.mark_read,
             requestedBy: `mcp:${props.clientName}`,
           }),

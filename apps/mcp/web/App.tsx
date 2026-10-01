@@ -218,61 +218,127 @@ function Senders(props: {
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   if (!props.senders) return <p className="notice">読み込み中</p>
   if (props.senders.length === 0) return <p className="notice">受信トレイは空です。</p>
 
-  const run = async (s: Sender, markRead: boolean) => {
-    setBusy((b) => new Set(b).add(s.address))
-    await props.archive({ sender: s.address, account: props.account || undefined, mark_read: markRead }, senderName(s))
+  const setBusyFor = (addresses: string[], on: boolean) =>
     setBusy((b) => {
       const next = new Set(b)
-      next.delete(s.address)
+      for (const a of addresses) {
+        if (on) next.add(a)
+        else next.delete(a)
+      }
       return next
     })
+
+  // 1 件でも複数でも、差出人のアドレスを渡して積む
+  const run = async (targets: Sender[], markRead: boolean) => {
+    const addresses = targets.map((s) => s.address)
+    const label = targets.length === 1 ? senderName(targets[0]!) : `${targets.length} 件の差出人`
+    setSelected(new Set())
+    setBusyFor(addresses, true)
+    await props.archive({ senders: addresses, account: props.account || undefined, mark_read: markRead }, label)
+    setBusyFor(addresses, false)
   }
 
+  const toggle = (address: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur)
+      if (next.has(address)) next.delete(address)
+      else next.add(address)
+      return next
+    })
+
+  const chosen = props.senders.filter((s) => selected.has(s.address))
+  const chosenTotal = chosen.reduce((sum, s) => sum + s.total, 0)
+
   return (
-    <ol className="senders">
-      {props.senders.map((s) => (
-        <li key={s.address} className={busy.has(s.address) ? 'busy' : ''}>
-          <div className="sender-row">
-            <Avatar name={senderName(s)} seed={s.address} />
-            <button
-              className="sender-main"
-              aria-expanded={open === s.address}
-              onClick={() => setOpen(open === s.address ? null : s.address)}
-            >
-              <span className="sender-name">{senderName(s)}</span>
-              <span className="sender-sub">
-                <span className="sender-address">{s.address}</span>
-                {s.unread > 0 && <span className="unread">未読 {n(s.unread)}</span>}
-              </span>
+    <>
+      {props.canTriage && (
+        <div className="list-tools">
+          <span className="hint">アイコンを押すと複数選べます</span>
+          {selected.size > 0 && (
+            <button className="quiet" onClick={() => setSelected(new Set())}>
+              選択を外す
             </button>
-            <b className="count">{n(s.total)}</b>
-            {props.canTriage && (
-              <ConfirmButton
-                label="片付ける"
-                confirmLabel={`${n(s.total)} 通を既読にしてアーカイブ`}
-                busyLabel="片付け中"
-                busy={busy.has(s.address)}
-                onConfirm={() => void run(s, true)}
-              />
-            )}
-          </div>
-          {open === s.address && (
-            <SenderDetail
-              sender={s}
-              account={props.account}
-              canTriage={props.canTriage}
-              busy={busy.has(s.address)}
-              onArchiveKeepUnread={() => void run(s, false)}
-              onError={props.onError}
-            />
           )}
-        </li>
-      ))}
-    </ol>
+        </div>
+      )}
+      <ol className="senders">
+        {props.senders.map((s) => {
+          const isSelected = selected.has(s.address)
+          return (
+            <li
+              key={s.address}
+              className={[busy.has(s.address) ? 'busy' : '', isSelected ? 'selected' : ''].join(' ').trim()}
+            >
+              <div className="sender-row">
+                {props.canTriage ? (
+                  <button
+                    className="avatar-button"
+                    aria-pressed={isSelected}
+                    aria-label={`${senderName(s)}を${isSelected ? '選択から外す' : '選ぶ'}`}
+                    disabled={busy.has(s.address)}
+                    onClick={() => toggle(s.address)}
+                  >
+                    <Avatar name={senderName(s)} seed={s.address} checked={isSelected} />
+                  </button>
+                ) : (
+                  <Avatar name={senderName(s)} seed={s.address} />
+                )}
+                <button
+                  className="sender-main"
+                  aria-expanded={open === s.address}
+                  onClick={() => setOpen(open === s.address ? null : s.address)}
+                >
+                  <span className="sender-name">{senderName(s)}</span>
+                  <span className="sender-sub">
+                    <span className="sender-address">{s.address}</span>
+                    {s.unread > 0 && <span className="unread">未読 {n(s.unread)}</span>}
+                  </span>
+                </button>
+                <b className="count">{n(s.total)}</b>
+                {/* 選んでいる間は、行ごとのボタンを隠して下のバーに操作をまとめる */}
+                {props.canTriage && (selected.size === 0 || busy.has(s.address)) && (
+                  <ConfirmButton
+                    label="片付ける"
+                    confirmLabel={`${n(s.total)} 通を既読にしてアーカイブ`}
+                    busyLabel="片付け中"
+                    busy={busy.has(s.address)}
+                    onConfirm={() => void run([s], true)}
+                  />
+                )}
+              </div>
+              {open === s.address && (
+                <SenderDetail
+                  sender={s}
+                  account={props.account}
+                  canTriage={props.canTriage}
+                  busy={busy.has(s.address)}
+                  onArchiveKeepUnread={() => void run([s], false)}
+                  onError={props.onError}
+                />
+              )}
+            </li>
+          )
+        })}
+      </ol>
+      {chosen.length > 0 && (
+        <div className="selection-bar">
+          <span>
+            <b>{n(chosen.length)}</b> 件（{n(chosenTotal)} 通）
+          </span>
+          <button className="quiet" onClick={() => void run(chosen, false)}>
+            アーカイブ
+          </button>
+          <button className="primary" onClick={() => void run(chosen, true)}>
+            既読にしてアーカイブ
+          </button>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -402,8 +468,11 @@ function Timeline(props: {
     })
 
   const run = async (markRead: boolean) => {
+    const ids = [...selected]
+    // 操作バーと進行状況の欄が重ならないよう、積んだらすぐ選択を外す
+    setSelected(new Set())
     setBusy(true)
-    await props.archive({ message_ids: [...selected], mark_read: markRead }, `選んだ ${selected.size} 通`)
+    await props.archive({ message_ids: ids, mark_read: markRead }, `選んだ ${ids.length} 通`)
     setBusy(false)
   }
 

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { createSql, type Sql } from '@mailhub/db'
 import {
   enqueueArchive,
-  enqueueArchiveBySender,
+  enqueueArchiveBySenders,
   getOperations,
   inboxOverview,
   listMessages,
@@ -33,6 +33,11 @@ const numericId = z.string().regex(/^\d+$/)
 const ArchiveBody = z.union([
   z.object({ message_ids: z.array(numericId).min(1).max(2000), mark_read: z.boolean().default(false) }),
   z.object({ sender: z.string().min(3), account: z.string().optional(), mark_read: z.boolean().default(false) }),
+  z.object({
+    senders: z.array(z.string().min(3)).min(1).max(200),
+    account: z.string().optional(),
+    mark_read: z.boolean().default(false),
+  }),
 ])
 
 async function route(request: Request, sql: Sql, props: Props): Promise<Response> {
@@ -76,15 +81,12 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
     if (!parsed.success) throw new HttpError(400, '本文の形式が正しくありません')
     const requestedBy = `web:${props.clientName}`
     const body = parsed.data
+    if ('message_ids' in body) {
+      return json(await enqueueArchive(sql, { messageIds: body.message_ids, markSeen: body.mark_read, requestedBy }))
+    }
+    const addresses = 'senders' in body ? body.senders : [body.sender]
     return json(
-      'sender' in body
-        ? await enqueueArchiveBySender(sql, {
-            address: body.sender,
-            account: body.account,
-            markSeen: body.mark_read,
-            requestedBy,
-          })
-        : await enqueueArchive(sql, { messageIds: body.message_ids, markSeen: body.mark_read, requestedBy }),
+      await enqueueArchiveBySenders(sql, { addresses, account: body.account, markSeen: body.mark_read, requestedBy }),
     )
   }
   throw new HttpError(404, 'Not Found')

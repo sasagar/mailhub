@@ -774,3 +774,33 @@ select {
 .job-close {
   grid-area: close;
 }
+/* 差出人ごと: 複数選択 */
+.list-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 2px 2px 8px;
+}
+.list-tools .hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.avatar-button {
+  grid-area: avatar;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+.avatar-button:active:not(:disabled) .avatar {
+  transform: scale(0.9);
+}
+.senders > li.selected {
+  background: var(--ai-wash);
+}
+.quiet,
+.selection-bar span {
+  white-space: nowrap;
+}

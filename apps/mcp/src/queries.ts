@@ -155,17 +155,21 @@ export async function getOperations(sql: Sql, ids: string[]) {
   }))
 }
 
-// 差出人単位でアーカイブを積む（Web 画面の「この差出人をまとめて」用）。ID をブラウザから送らずに済む
-export async function enqueueArchiveBySender(
+// 差出人単位でアーカイブを積む（Web 画面の「この差出人をまとめて」や、複数の差出人を選んだとき）。
+// ID をブラウザやエージェントから送らずに済む
+export async function enqueueArchiveBySenders(
   sql: Sql,
-  opts: { address: string; account?: string; markSeen: boolean; requestedBy: string },
+  opts: { addresses: string[]; account?: string; markSeen: boolean; requestedBy: string },
 ) {
+  const addresses = [...new Set(opts.addresses.map((a) => a.toLowerCase()))]
   const rows = await sql`
     select m.id
     from messages m
     join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
     join accounts a on a.id = m.account_id and a.enabled
-    where lower(m.from_addr -> 0 ->> 'address') = lower(${opts.address})
+    where lower(m.from_addr -> 0 ->> 'address') in (
+      select jsonb_array_elements_text(${sql.json(addresses)})
+    )
       ${opts.account ? sql`and a.email = ${opts.account}` : sql``}`
   if (rows.length === 0) return { operations: [], notFound: [] }
   return enqueueArchive(sql, {

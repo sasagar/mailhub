@@ -61,7 +61,7 @@ const messagesOf = (from?: string): Message[] =>
       })),
     )
 
-type Pending = { started: number; count: number; sender?: string }
+type Pending = { started: number; count: number; senders: string[] }
 const ops = new Map<string, Pending>()
 let opSeq = 1
 
@@ -89,13 +89,15 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
   if (tail === 'archive') {
     const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as {
       sender?: string
+      senders?: string[]
       message_ids?: string[]
     }
-    const count = body.sender
-      ? (senders.find((s) => s.address === body.sender)?.total ?? 0)
+    const targets = body.senders ?? (body.sender ? [body.sender] : [])
+    const count = targets.length
+      ? senders.filter((s) => targets.includes(s.address)).reduce((sum, s) => sum + s.total, 0)
       : (body.message_ids?.length ?? 0)
     const id = String(opSeq++)
-    ops.set(id, { started: Date.now(), count, sender: body.sender })
+    ops.set(id, { started: Date.now(), count, senders: targets })
     const q: Queued = { operations: [{ operationId: id, account: 'me@example.com', count }], notFound: [] }
     return q as T
   }
@@ -105,7 +107,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       const age = Date.now() - p.started
       // 2 秒待って、4 秒かけて移動する、という流れを見せる
       const status = age < 2000 ? 'queued' : age < 6000 ? 'running' : 'done'
-      if (status === 'done' && p.sender) senders = senders.filter((s) => s.address !== p.sender)
+      if (status === 'done') senders = senders.filter((s) => !p.senders.includes(s.address))
       return {
         operationId: id,
         status,
