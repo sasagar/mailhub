@@ -40,9 +40,30 @@ const SITE_VERIFICATION: Record<string, string> = {
   '/google86918974a41ea5c2.html': 'google-site-verification: google86918974a41ea5c2.html',
 }
 
+const PUBLIC_PAGES = new Set(['/', '/about', '/privacy'])
+
 export const authHandler = {
   async fetch(request: Request, env: AuthEnv): Promise<Response> {
     const url = new URL(request.url)
+    // 説明ページとプライバシーポリシーは静的ファイルを返すだけだが、誰が見に来たかを残す
+    // （Google の OAuth の確認が「中身が無い」と言うので、実際に何が取りに来ているかを確かめる）
+    if (PUBLIC_PAGES.has(url.pathname)) {
+      const res = await env.ASSETS.fetch(request)
+      const cf = (request as Request & { cf?: Record<string, unknown> }).cf
+      console.log(
+        JSON.stringify({
+          page: url.pathname,
+          status: res.status,
+          ua: request.headers.get('user-agent'),
+          ip: request.headers.get('cf-connecting-ip'),
+          asn: cf?.asn,
+          org: cf?.asOrganization,
+          country: cf?.country,
+          verifiedBot: (cf?.botManagement as { verifiedBot?: boolean } | undefined)?.verifiedBot,
+        }),
+      )
+      return res
+    }
     const verification = SITE_VERIFICATION[url.pathname]
     if (verification && request.method === 'GET') {
       return new Response(verification, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
