@@ -9,7 +9,7 @@ revoke all on all tables in schema public from mailhub_mcp;
 revoke all on all sequences in schema public from mailhub_mcp;
 grant usage on schema public to mailhub_mcp;
 
-grant select (id, label, email, provider, enabled) on accounts to mailhub_mcp;
+grant select (id, label, from_name, email, provider, enabled) on accounts to mailhub_mcp;
 grant select on mailboxes, messages to mailhub_mcp;
 grant select, insert on operations to mailhub_mcp;
 grant usage on sequence operations_id_seq to mailhub_mcp;
