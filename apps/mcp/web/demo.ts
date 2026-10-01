@@ -76,6 +76,7 @@ let drafts: Draft[] = [
   {
     id: '99',
     account: 'me@example.com',
+    from: 'support@example.com',
     to: [{ name: '山田 太郎', address: 'taro@example.com' }],
     cc: [],
     bcc: [],
@@ -104,7 +105,17 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
   if (tail === 'overview') {
     const o: Overview = {
       me: { email: 'me@example.com', scopes: ['mail.read', 'mail.triage', 'mail.send'] },
-      accounts: [{ account: 'me@example.com', label: 'わたし', total, unread, syncedAt: new Date().toISOString() }],
+      accounts: [
+        {
+          account: 'me@example.com',
+          label: 'わたし',
+          fromName: 'Example Taro',
+          aliases: [{ address: 'support@example.com', fromName: 'Example Support' }],
+          total,
+          unread,
+          syncedAt: new Date().toISOString(),
+        },
+      ],
     }
     return o as T
   }
@@ -198,6 +209,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       const d: Draft = {
         id: String(draftSeq++),
         account: 'me@example.com',
+        from: 'me@example.com',
         to: body.reply_to ? [{ name: 'YOUTRUST', address: 'hello@youtrust.jp' }] : [],
         cc: [],
         bcc: [],

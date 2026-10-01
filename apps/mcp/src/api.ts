@@ -47,6 +47,7 @@ const DraftBody = z.object({
   bcc: z.string().max(5000).optional(),
   subject: z.string().max(500).optional(),
   body: z.string().max(100_000).optional(),
+  from: z.string().max(320).optional(),
   reply_to: z
     .union([z.object({ id: numericId }), z.object({ account: z.string(), mailbox: z.string(), uid: z.number().int() })])
     .optional(),
@@ -153,6 +154,7 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
           bcc: d.bcc,
           subject: d.subject,
           body: d.body,
+          from: d.from,
           replyTo,
           replyAll: d.reply_all,
           createdBy: `web:${props.clientName}`,

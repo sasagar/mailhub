@@ -39,7 +39,7 @@ function createServer(sql: Sql, props: Props) {
       'inbox_overview',
       {
         description:
-          '全アカウントの受信トレイの件数・未読数・最終同期時刻を返す。まずこれで全体を把握してから他のツールを使う。',
+          '全アカウントの受信トレイの件数・未読数・最終同期時刻と、送信に使えるエイリアス（aliases）を返す。まずこれで全体を把握してから他のツールを使う。',
         annotations: { readOnlyHint: true },
       },
       async () => {
@@ -237,6 +237,12 @@ function createServer(sql: Sql, props: Props) {
           bcc: addrList,
           subject: z.string().max(500).optional(),
           account: z.string().optional().describe('送信に使うアカウント（返信なら元のメールのアカウント）'),
+          from: z
+            .string()
+            .optional()
+            .describe(
+              '差出人のアドレス。アカウント本体か、inbox_overview の aliases にあるもの。返信でエイリアス宛てなら省略時にそのエイリアスになる',
+            ),
           reply_to_message_id: z.string().regex(/^\d+$/).optional(),
           reply_to_account: z.string().optional(),
           reply_to_mailbox: z.string().optional(),
@@ -259,6 +265,7 @@ function createServer(sql: Sql, props: Props) {
           bcc: a.bcc,
           subject: a.subject,
           body: a.body,
+          from: a.from,
           replyTo,
           replyAll: a.reply_all,
           createdBy: `mcp:${props.clientName}`,
@@ -278,6 +285,7 @@ function createServer(sql: Sql, props: Props) {
           bcc: addrList,
           subject: z.string().max(500).optional(),
           body: z.string().max(100_000).optional(),
+          from: z.string().optional().describe('差出人のアドレス（アカウント本体かエイリアス）'),
         },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       },

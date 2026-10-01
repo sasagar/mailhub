@@ -18,8 +18,9 @@ export type MessageSummary = {
 }
 
 export async function inboxOverview(sql: Sql) {
+  const aliases = await sql`select account_id, address, from_name from aliases order by address`
   const accounts = await sql`
-    select a.email, a.label, b.synced_at,
+    select a.id, a.email, a.label, a.from_name, b.synced_at,
       count(m.id)::int as total,
       count(m.id) filter (where not ('\\Seen' = any(m.flags)))::int as unread
     from accounts a
@@ -31,6 +32,9 @@ export async function inboxOverview(sql: Sql) {
   return accounts.map((a) => ({
     account: a.email,
     label: a.label,
+    fromName: a.from_name,
+    // 送信に使えるエイリアス（差出人として選べる）
+    aliases: aliases.filter((l) => l.account_id === a.id).map((l) => ({ address: l.address, fromName: l.from_name })),
     total: a.total,
     unread: a.unread,
     syncedAt: a.synced_at?.toISOString() ?? null,
@@ -376,6 +380,8 @@ export function parseAddresses(input: string | string[] | undefined): Addr[] {
 export type Draft = {
   id: string
   account: string
+  // 差出人のアドレス（アカウント本体かエイリアス）
+  from: string
   to: Addr[]
   cc: Addr[]
   bcc: Addr[]
@@ -391,12 +397,13 @@ export type Draft = {
 }
 
 const draftColumns = (sql: Sql) => sql`
-  d.id, a.email, d.to_addrs, d.cc_addrs, d.bcc_addrs, d.subject, d.body_text, d.reply_to_message_id,
+  d.id, a.email, d.from_address, d.to_addrs, d.cc_addrs, d.bcc_addrs, d.subject, d.body_text, d.reply_to_message_id,
   d.in_reply_to, d.status, d.error, d.created_by, d.updated_at, d.sent_at`
 
 const toDraft = (r: Record<string, any>): Draft => ({
   id: String(r.id),
   account: r.email,
+  from: r.from_address ?? r.email,
   to: r.to_addrs,
   cc: r.cc_addrs,
   bcc: r.bcc_addrs,
@@ -420,6 +427,17 @@ async function accountIdFor(sql: Sql, email: string | undefined): Promise<number
   return rows[0]!.id
 }
 
+// 差出人として指定されたアドレスが、どのアカウントのものかを引く（本体かエイリアス）
+async function resolveIdentity(sql: Sql, address: string): Promise<{ accountId: number; fromAddress: string | null }> {
+  const addr = address.trim().toLowerCase()
+  const [a] = await sql`select id from accounts where email = ${addr} and enabled`
+  if (a) return { accountId: a.id, fromAddress: null }
+  const [l] = await sql`
+    select l.account_id from aliases l join accounts a on a.id = l.account_id where l.address = ${addr} and a.enabled`
+  if (l) return { accountId: l.account_id, fromAddress: addr }
+  throw new Error(`${address} は登録されたアカウントでもエイリアスでもありません`)
+}
+
 const quote = (text: string) =>
   text
     .split('\n')
@@ -436,12 +454,15 @@ export async function createDraft(
     bcc?: string | string[]
     subject?: string
     body?: string
+    // 差出人のアドレス（アカウント本体かエイリアス）。省略時はアカウント本体。返信ではエイリアス宛てなら自動でそのエイリアス
+    from?: string
     replyTo?: MessageRef
     replyAll?: boolean
     createdBy: string
   },
 ): Promise<Draft> {
   let accountId: number
+  let fromAddress: string | null = null
   let to = parseAddresses(opts.to)
   let cc = parseAddresses(opts.cc)
   let subject = opts.subject ?? ''
@@ -454,14 +475,25 @@ export async function createDraft(
     const orig = await getMessageBody(sql, opts.replyTo, opts.createdBy)
     const [a] = await sql`select id, email from accounts where email = ${orig.account}`
     accountId = a!.id
-    const me = String(a!.email).toLowerCase()
     const h = orig.headers
+    const myEmail = String(a!.email).toLowerCase()
+    const aliasRows = await sql`select address from aliases where account_id = ${accountId}`
+    const myAliases = new Set(aliasRows.map((l) => String(l.address)))
+    const isMine = (x: { address: string | null }) =>
+      !!x.address && (x.address.toLowerCase() === myEmail || myAliases.has(x.address.toLowerCase()))
+    if (opts.from) {
+      const id = await resolveIdentity(sql, opts.from)
+      if (id.accountId !== accountId) throw new Error(`${opts.from} は ${orig.account} の差出人として使えません`)
+      fromAddress = id.fromAddress
+    } else {
+      // 元のメールがエイリアス宛てなら、そのエイリアスから返す
+      const hit = [...h.to, ...h.cc].find((x) => !!x.address && myAliases.has(x.address.toLowerCase()))
+      fromAddress = hit?.address?.toLowerCase() ?? null
+    }
     const replyTarget = (h.replyTo.length ? h.replyTo : h.from ? [h.from] : []).filter((x) => x.address) as Addr[]
     if (to.length === 0) to = replyTarget
     if (opts.replyAll && cc.length === 0) {
-      cc = [...h.to, ...h.cc].filter(
-        (x): x is Addr => !!x.address && x.address.toLowerCase() !== me && !to.some((t) => t.address === x.address),
-      )
+      cc = [...h.to, ...h.cc].filter((x): x is Addr => !isMine(x) && !to.some((t) => t.address === x.address))
     }
     if (!opts.subject) subject = /^re:/i.test(h.subject ?? '') ? (h.subject ?? '') : `Re: ${h.subject ?? ''}`
     const when = h.date ? new Date(h.date).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : ''
@@ -470,6 +502,10 @@ export async function createDraft(
     inReplyTo = h.messageId
     references = [h.references, h.messageId].filter(Boolean).join(' ') || null
     replyToMessageId = orig.messageId
+  } else if (opts.from) {
+    const id = await resolveIdentity(sql, opts.from)
+    accountId = id.accountId
+    fromAddress = id.fromAddress
   } else {
     accountId = await accountIdFor(sql, opts.account)
   }
@@ -477,6 +513,7 @@ export async function createDraft(
   const [row] = await sql`
     insert into drafts ${sql({
       account_id: accountId,
+      from_address: fromAddress,
       to_addrs: sql.json(to),
       cc_addrs: sql.json(cc),
       bcc_addrs: sql.json(parseAddresses(opts.bcc)),
@@ -509,9 +546,24 @@ export async function listDrafts(sql: Sql, opts: { includeSent: boolean; limit: 
 export async function updateDraft(
   sql: Sql,
   id: string,
-  patch: { to?: string | string[]; cc?: string | string[]; bcc?: string | string[]; subject?: string; body?: string },
+  patch: {
+    to?: string | string[]
+    cc?: string | string[]
+    bcc?: string | string[]
+    subject?: string
+    body?: string
+    from?: string
+  },
 ): Promise<Draft> {
   const set: Record<string, unknown> = { updated_at: new Date() }
+  if (patch.from !== undefined) {
+    const [d] = await sql`select account_id from drafts where id = ${id}`
+    if (!d) throw new Error('下書きが見つかりません')
+    const identity = await resolveIdentity(sql, patch.from)
+    if (identity.accountId !== d.account_id)
+      throw new Error(`${patch.from} はこの下書きのアカウントの差出人として使えません`)
+    set.from_address = identity.fromAddress
+  }
   if (patch.to !== undefined) set.to_addrs = sql.json(parseAddresses(patch.to))
   if (patch.cc !== undefined) set.cc_addrs = sql.json(parseAddresses(patch.cc))
   if (patch.bcc !== undefined) set.bcc_addrs = sql.json(parseAddresses(patch.bcc))

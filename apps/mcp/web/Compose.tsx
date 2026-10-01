@@ -4,10 +4,19 @@ import type { Account, ComposeTarget, Draft, DraftAddr } from './types.ts'
 
 const joinAddrs = (list: DraftAddr[]) => list.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ')
 
-type Fields = { account: string; to: string; cc: string; bcc: string; subject: string; body: string }
+type Fields = { account: string; from: string; to: string; cc: string; bcc: string; subject: string; body: string }
+
+// 差出人の候補。アカウント本体と、そのエイリアス
+type Identity = { address: string; account: string; label: string; fromName: string }
+const identitiesOf = (accounts: Account[]): Identity[] =>
+  accounts.flatMap((a) => [
+    { address: a.account, account: a.account, label: a.label, fromName: a.fromName },
+    ...a.aliases.map((l) => ({ address: l.address, account: a.account, label: a.label, fromName: l.fromName })),
+  ])
 
 const fieldsOf = (d: Draft): Fields => ({
   account: d.account,
+  from: d.from,
   to: joinAddrs(d.to),
   cc: joinAddrs(d.cc),
   bcc: joinAddrs(d.bcc),
@@ -50,7 +59,8 @@ export function Compose(props: {
             })
           : null
     if (!load) {
-      const blank = { account: props.accounts[0]?.account ?? '', to: '', cc: '', bcc: '', subject: '', body: '' }
+      const first = props.accounts[0]?.account ?? ''
+      const blank = { account: first, from: first, to: '', cc: '', bcc: '', subject: '', body: '' }
       setFields(blank)
       setSaved(blank)
       return
@@ -80,13 +90,17 @@ export function Compose(props: {
     setStatus('saving')
     setError(null)
     try {
-      const payload = { to: fields.to, cc: fields.cc, bcc: fields.bcc, subject: fields.subject, body: fields.body }
+      const payload = {
+        from: fields.from,
+        to: fields.to,
+        cc: fields.cc,
+        bcc: fields.bcc,
+        subject: fields.subject,
+        body: fields.body,
+      }
       const d = id
         ? await api<Draft>('/mcp/api/drafts', { method: 'PATCH', body: JSON.stringify({ id, ...payload }) })
-        : await api<Draft>('/mcp/api/drafts', {
-            method: 'POST',
-            body: JSON.stringify({ account: fields.account, ...payload }),
-          })
+        : await api<Draft>('/mcp/api/drafts', { method: 'POST', body: JSON.stringify(payload) })
       setId(d.id)
       setSaved(fieldsOf(d))
       return d.id
@@ -131,6 +145,12 @@ export function Compose(props: {
 
   const set = (k: keyof Fields) => (e: { target: { value: string } }) =>
     setFields((f) => (f ? { ...f, [k]: e.target.value } : f))
+  // 新規は全アカウントとそのエイリアスから、既存の下書き（返信など）は同じアカウントの中から選ぶ
+  const identities = identitiesOf(props.accounts).filter((i) => !id || i.account === fields?.account)
+  const chooseFrom = (address: string) => {
+    const i = identities.find((x) => x.address === address)
+    if (i) setFields((f) => (f ? { ...f, from: i.address, account: i.account } : f))
+  }
   const busy = status !== 'idle'
   const recipients = fields ? [fields.to, fields.cc, fields.bcc].join('').trim() : ''
 
@@ -154,16 +174,18 @@ export function Compose(props: {
           <form className="compose-form" onSubmit={(e) => e.preventDefault()}>
             <label>
               <span>差出人</span>
-              {props.accounts.length > 1 && !id ? (
-                <select value={fields.account} onChange={set('account')}>
-                  {props.accounts.map((a) => (
-                    <option key={a.account} value={a.account}>
-                      {a.label}（{a.account}）
+              {identities.length > 1 ? (
+                <select value={fields.from} onChange={(e) => chooseFrom(e.target.value)}>
+                  {identities.map((i) => (
+                    <option key={i.address} value={i.address}>
+                      {i.fromName} &lt;{i.address}&gt;{i.address === i.account ? `（${i.label}）` : ''}
                     </option>
                   ))}
                 </select>
               ) : (
-                <output>{fields.account}</output>
+                <output>
+                  {identities[0]?.fromName} &lt;{fields.from}&gt;
+                </output>
               )}
             </label>
             <label>

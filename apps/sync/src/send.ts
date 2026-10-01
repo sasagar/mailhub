@@ -44,8 +44,16 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
 
     const domain = account.email.split('@')[1] ?? 'mailhub.local'
     const messageId = `<${randomUUID()}@${domain}>`
+    // 差出人はアカウント本体か、登録済みのエイリアス。SMTP の認証と envelope はアカウント本体で行う
+    let from = { name: account.fromName, address: account.email }
+    if (d.from_address && d.from_address !== account.email) {
+      const [alias] =
+        await sql`select from_name from aliases where account_id = ${account.id} and address = ${d.from_address}`
+      if (!alias) throw new Error(`${d.from_address} は ${account.email} のエイリアスに登録されていません`)
+      from = { name: alias.from_name, address: d.from_address }
+    }
     const options = {
-      from: { name: account.fromName, address: account.email },
+      from,
       to: fmt(to),
       cc: fmt(cc),
       bcc: fmt(bcc),

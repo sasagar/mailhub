@@ -1,4 +1,13 @@
-export type Account = { account: string; label: string; total: number; unread: number; syncedAt: string | null }
+export type Alias = { address: string; fromName: string }
+export type Account = {
+  account: string
+  label: string
+  fromName: string
+  aliases: Alias[]
+  total: number
+  unread: number
+  syncedAt: string | null
+}
 export type Overview = { me: { email: string; scopes: string[] }; accounts: Account[] }
 export type Sender = { address: string; name: string | null; total: number; unread: number; latest: string | null }
 export type Message = {
@@ -61,6 +70,7 @@ export type DraftAddr = { name: string | null; address: string }
 export type Draft = {
   id: string
   account: string
+  from: string
   to: DraftAddr[]
   cc: DraftAddr[]
   bcc: DraftAddr[]

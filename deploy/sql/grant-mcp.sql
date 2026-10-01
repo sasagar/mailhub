@@ -26,3 +26,6 @@ grant select on message_bodies to mailhub_mcp;
 -- 下書きを作り・直し・消す。送信は requests に kind = 'send' を積む（同期デーモンが SMTP で送る）
 grant select, insert, update, delete on drafts to mailhub_mcp;
 grant usage on sequence drafts_id_seq to mailhub_mcp;
+
+-- エイリアスは読むだけ（追加・削除は同期デーモン側の CLI）
+grant select on aliases to mailhub_mcp;
