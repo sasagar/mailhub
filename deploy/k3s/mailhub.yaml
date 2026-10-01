@@ -71,6 +71,8 @@ spec:
               value: mailhub
             - name: PGUSER
               value: mailhub
+            - name: TZ
+              value: Asia/Tokyo
           envFrom:
             - secretRef:
                 name: mailhub-secret # PGPASSWORD, MAILHUB_MASTER_KEY
