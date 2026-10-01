@@ -4,6 +4,7 @@ import { avatarHue, initial, n, senderName, when } from './format.ts'
 import type { Message, MessagePage, Overview, SearchResult, Sender } from './types.ts'
 import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
 import { useFreshness } from './useFreshness.ts'
+import { usePullToRefresh } from './usePullToRefresh.ts'
 
 type View = 'senders' | 'timeline' | 'search'
 
@@ -70,6 +71,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { archive, jobs, now, dismiss } = useArchive(reload)
   const { refresh, updateReady, applyUpdate } = useFreshness(reload)
   const [refreshing, setRefreshing] = useState(false)
+  const pullState = usePullToRefresh(refresh)
   const canTriage = overview?.me.scopes.includes('mail.triage') ?? false
   const accounts = overview?.accounts ?? []
   const scoped = account ? accounts.filter((a) => a.account === account) : accounts
@@ -78,6 +80,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return (
     <div className="app">
+      <PullIndicator {...pullState} />
       <header className="top">
         {updateReady && (
           <p className="update-banner">
@@ -179,6 +182,22 @@ function Avatar({ name, seed, checked }: { name: string; seed: string; checked?:
     >
       {checked ? '✓' : initial(name)}
     </span>
+  )
+}
+
+// 引っ張って更新の表示。引いた分だけ矢印が回り、離せば更新されるところで向きが変わる
+function PullIndicator({ pull, ready, refreshing }: { pull: number; ready: boolean; refreshing: boolean }) {
+  if (pull === 0 && !refreshing) return null
+  return (
+    <div className="pull" style={{ transform: `translate(-50%, ${pull - 44}px)` }} aria-hidden="true">
+      {refreshing ? (
+        <span className="spinner" />
+      ) : (
+        <svg viewBox="0 0 20 20" width="18" height="18" style={{ transform: `rotate(${ready ? 180 : pull * 2}deg)` }}>
+          <path d="M10 4v12M5 11l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      )}
+    </div>
   )
 }
 

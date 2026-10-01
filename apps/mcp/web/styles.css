@@ -911,3 +911,25 @@ select {
 .update-banner .primary {
   padding: 5px 14px;
 }
+/* 引っ張って更新。iOS の跳ね返りと二重に動かないよう、ページ全体の跳ね返りは止める */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+.pull {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--sheet);
+  color: var(--ai);
+  box-shadow: var(--shadow);
+}
+.pull svg {
+  transition: transform 120ms;
+}
