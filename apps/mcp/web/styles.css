@@ -1258,3 +1258,95 @@ html.sheet-open body {
   background: color-mix(in srgb, var(--alert) 14%, transparent);
   color: var(--alert);
 }
+/* 添付ファイル（押すとダウンロード） */
+.attachments li {
+  padding: 0;
+}
+.att-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: var(--ai);
+  font-size: 14px;
+  text-align: left;
+}
+.att-button:disabled {
+  cursor: progress;
+}
+
+/* スレッド */
+.thread {
+  margin-top: 24px;
+}
+.thread h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.thread ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--sheet);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.thread li + li {
+  border-top: 1px solid var(--line);
+}
+.thread button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.thread li.current {
+  background: var(--ai-wash);
+}
+.thread button:disabled {
+  cursor: default;
+}
+.thread-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.thread-line .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.thread-line time {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.thread .subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.thread li.is-unread .subject {
+  color: var(--ink);
+  font-weight: 600;
+}
+.thread-error {
+  margin-top: 16px;
+}

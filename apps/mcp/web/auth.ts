@@ -173,3 +173,21 @@ export class LoggedOut extends Error {
     super('ログインが切れました')
   }
 }
+
+// ファイルとして受け取る（添付ファイル）。Bearer が要るので、リンクではなくここで取ってから保存させる
+export async function apiBlob(path: string): Promise<Blob> {
+  if (demo) return new Blob(['見本の添付ファイルです'], { type: 'text/plain' })
+  if (!memory.accessToken || (memory.expiresAt ?? 0) - 60_000 < Date.now()) await refresh()
+  const send = () => fetch(path, { headers: { Authorization: `Bearer ${memory.accessToken ?? ''}` } })
+  let res = await send()
+  if (res.status === 401 && (await refresh())) res = await send()
+  if (res.status === 401) {
+    logout()
+    throw new LoggedOut()
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error ?? `${res.status} ${res.statusText}`)
+  }
+  return res.blob()
+}

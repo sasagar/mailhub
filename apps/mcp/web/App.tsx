@@ -257,6 +257,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
           onError={guard}
           onMarkedRead={reload}
           onReply={(replyTo, replyAll) => openCompose({ replyTo, replyAll })}
+          onOpen={openMessage}
         />
       )}
       {composing && (

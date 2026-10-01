@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, LoggedOut } from './auth.ts'
-import { n, senderName } from './format.ts'
-import type { Addr, MessageBody, MessageRef } from './types.ts'
+import { api, apiBlob, LoggedOut } from './auth.ts'
+import { n, senderName, when } from './format.ts'
+import type { Addr, MessageBody, MessageRef, ThreadItem } from './types.ts'
 
 const fmtDate = (iso: string | null) =>
   iso
@@ -49,6 +49,8 @@ export function MessageView(props: {
   onError: (err: unknown) => void
   onMarkedRead: () => void
   onReply: (replyTo: { id: string } | { account: string; mailbox: string; uid: number }, replyAll: boolean) => void
+  // スレッドの別のメールを開く
+  onOpen: (ref: MessageRef) => void
 }) {
   const [body, setBody] = useState<MessageBody | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +87,49 @@ export function MessageView(props: {
     document.documentElement.classList.add('sheet-open')
     return () => document.documentElement.classList.remove('sheet-open')
   }, [props.target])
+
+  // スレッドは本文を出してから取りに行く（数秒かかることがあるので、本文の表示を待たせない）
+  const [thread, setThread] = useState<ThreadItem[] | null>(null)
+  const [threadError, setThreadError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!body) return
+    setThread(null)
+    setThreadError(null)
+    const q = new URLSearchParams({ account: body.account, mailbox: body.mailbox, uid: String(body.uid) })
+    api<{ items: ThreadItem[] }>(`/mcp/api/thread?${q}`)
+      .then((t) => setThread(t.items))
+      .catch((err: Error) => setThreadError(err.message))
+  }, [body])
+
+  // 添付ファイルを取りに行って保存させる。取得中の番号を覚えてその行に表示を出す
+  const [downloading, setDownloading] = useState<number | null>(null)
+  const download = async (index: number, filename: string) => {
+    if (!body) return
+    setDownloading(index)
+    setError(null)
+    try {
+      const q = new URLSearchParams({
+        account: body.account,
+        mailbox: body.mailbox,
+        uid: String(body.uid),
+        index: String(index),
+      })
+      const blob = await apiBlob(`/mcp/api/attachment?${q}`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.append(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      if (err instanceof LoggedOut) props.onError(err)
+      else setError(`添付ファイルを取得できませんでした: ${(err as Error).message}`)
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   const hasRemoteImages = body?.html ? /<img[^>]+src=["']?https?:/i.test(body.html) : false
   const useHtml = body?.html != null && !preferText
@@ -187,13 +232,58 @@ export function MessageView(props: {
                 <ul>
                   {body.attachments.map((a) => (
                     <li key={a.index}>
-                      <span className="att-name">{a.filename}</span>
-                      <span className="att-size">{fmtSize(a.size)}</span>
+                      <button
+                        className="att-button"
+                        disabled={downloading != null}
+                        onClick={() => void download(a.index, a.filename)}
+                        aria-label={`${a.filename} をダウンロード`}
+                      >
+                        <span className="att-name">{a.filename}</span>
+                        <span className="att-size">
+                          {downloading === a.index ? <span className="spinner" aria-hidden="true" /> : fmtSize(a.size)}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>
               </section>
             )}
+
+            {thread && thread.length > 1 && (
+              <section className="thread">
+                <h3>このスレッドの {n(thread.length)} 通</h3>
+                <ol>
+                  {thread.map((t) => {
+                    const current = t.mailbox === body.mailbox && t.uid === body.uid
+                    return (
+                      <li key={`${t.mailbox}:${t.uid}`} className={current ? 'current' : t.unread ? 'is-unread' : ''}>
+                        <button
+                          disabled={current}
+                          onClick={() =>
+                            props.onOpen(
+                              t.messageId
+                                ? { id: t.messageId }
+                                : { account: t.account, mailbox: t.mailbox, uid: t.uid },
+                            )
+                          }
+                        >
+                          <span className="thread-line">
+                            <span className="who">
+                              {t.sent ? '自分' : senderName(t.from)}
+                              {current && <span className="badge">表示中</span>}
+                              {t.inInbox && !current && <span className="badge">受信トレイ</span>}
+                            </span>
+                            <time dateTime={t.receivedAt ?? undefined}>{when(t.receivedAt)}</time>
+                          </span>
+                          <span className="subject">{t.subject || '（件名なし）'}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </section>
+            )}
+            {threadError && <p className="muted thread-error">スレッドを読み込めませんでした: {threadError}</p>}
           </article>
         )}
       </div>

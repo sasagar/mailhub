@@ -597,3 +597,91 @@ export async function sendDraftNow(sql: Sql, id: string, requestedBy: string): P
   }
   throw new Error('送信の結果が 25 秒以内に返りませんでした。下書きの状態を確かめてください')
 }
+
+// ---- 添付ファイルとスレッド ----
+
+// 同期デーモンに依頼を積み、終わるまで待つ。結果（requests.result）を返す
+async function runDaemonRequest(
+  sql: Sql,
+  opts: {
+    kind: 'fetch_attachment' | 'thread'
+    accountId: number
+    params: Record<string, unknown>
+    requestedBy: string
+  },
+): Promise<unknown> {
+  const [req] = await sql`
+    insert into requests (kind, account_id, params, requested_by)
+    values (${opts.kind}, ${opts.accountId}, ${sql.json(opts.params as never)}, ${opts.requestedBy})
+    returning id`
+  const deadline = Date.now() + 25_000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 300))
+    const [st] = await sql`select status, error, result from requests where id = ${req!.id}`
+    if (st?.status === 'failed') throw new Error(st.error as string)
+    if (st?.status === 'done') return st.result
+  }
+  throw new Error('25 秒以内に終わりませんでした。もう一度試してください')
+}
+
+export type Attachment = { filename: string; mimeType: string; content: Uint8Array }
+
+// 添付ファイルを 1 つ返す。番号は read_message の attachments[].index
+export async function getAttachment(
+  sql: Sql,
+  ref: MessageRef,
+  index: number,
+  requestedBy: string,
+): Promise<Attachment> {
+  const loc = await locate(sql, ref)
+  const read = async () => {
+    const [b] = await sql`
+      select filename, mime_type, content from attachment_blobs
+      where account_id = ${loc.accountId} and mailbox = ${loc.mailbox} and uid = ${loc.uid} and part_index = ${index}`
+    return b
+  }
+  let blob = await read()
+  if (!blob) {
+    try {
+      await runDaemonRequest(sql, {
+        kind: 'fetch_attachment',
+        accountId: loc.accountId,
+        params: { mailbox: loc.mailbox, uid: loc.uid, index },
+        requestedBy,
+      })
+    } catch (err) {
+      throw new Error(`添付ファイルを取得できませんでした: ${(err as Error).message}`)
+    }
+    blob = await read()
+    if (!blob) throw new Error('添付ファイルを取得できませんでした')
+  }
+  return { filename: blob.filename, mimeType: blob.mime_type, content: new Uint8Array(blob.content) }
+}
+
+export type ThreadItem = {
+  account: string
+  mailbox: string
+  uid: number
+  messageId: string | null
+  subject: string | null
+  from: { name: string | null; address: string | null } | null
+  receivedAt: string | null
+  unread: boolean
+  inInbox: boolean
+  sent: boolean
+}
+
+// スレッドのメールを古い順に返す（アーカイブ済み・送信済みも含む）
+export async function getThread(sql: Sql, ref: MessageRef, requestedBy: string): Promise<{ items: ThreadItem[] }> {
+  const loc = await locate(sql, ref)
+  try {
+    return (await runDaemonRequest(sql, {
+      kind: 'thread',
+      accountId: loc.accountId,
+      params: { mailbox: loc.mailbox, uid: loc.uid },
+      requestedBy,
+    })) as { items: ThreadItem[] }
+  } catch (err) {
+    throw new Error(`スレッドを取得できませんでした: ${(err as Error).message}`)
+  }
+}

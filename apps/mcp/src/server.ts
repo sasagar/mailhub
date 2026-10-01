@@ -13,6 +13,7 @@ import {
   enqueueArchiveBySenders,
   enqueueMarkSeen,
   getMessageBody,
+  getThread,
   getOperations,
   inboxOverview,
   listDrafts,
@@ -161,6 +162,32 @@ function createServer(sql: Sql, props: Props) {
             : body.text,
           truncated,
         })
+      },
+    )
+
+    server.registerTool(
+      'get_thread',
+      {
+        description:
+          'メールのスレッド（やり取り）を古い順に返す。アーカイブ済みや自分が送ったもの（sent: true）も含む。' +
+          '起点は read_message と同じ指定（message_id か account・mailbox・uid）。各メールの中身は read_message で読む。',
+        inputSchema: {
+          message_id: z.string().regex(/^\d+$/).optional(),
+          account: z.string().optional(),
+          mailbox: z.string().optional(),
+          uid: z.number().int().positive().optional(),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async (a) => {
+        requireScope('mail.read')
+        const ref = a.message_id
+          ? { messageId: a.message_id }
+          : a.account && a.mailbox && a.uid
+            ? { account: a.account, mailbox: a.mailbox, uid: a.uid }
+            : null
+        if (!ref) throw new Error('message_id か、account・mailbox・uid の組を指定してください')
+        return json(await getThread(sql, ref, `mcp:${props.clientName}`))
       },
     )
 

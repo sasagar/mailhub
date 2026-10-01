@@ -89,3 +89,15 @@ export type ComposeTarget =
   | { draftId: string }
   | { replyTo: { id: string } | { account: string; mailbox: string; uid: number }; replyAll: boolean }
   | { blank: true }
+export type ThreadItem = {
+  account: string
+  mailbox: string
+  uid: number
+  messageId: string | null
+  subject: string | null
+  from: { name: string | null; address: string | null } | null
+  receivedAt: string | null
+  unread: boolean
+  inInbox: boolean
+  sent: boolean
+}

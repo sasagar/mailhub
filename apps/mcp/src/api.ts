@@ -8,7 +8,9 @@ import {
   deleteDraft,
   enqueueArchiveBySenders,
   enqueueMarkSeen,
+  getAttachment,
   getMessageBody,
+  getThread,
   getOperations,
   getDraft,
   inboxOverview,
@@ -105,7 +107,10 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
       }),
     )
   }
-  if (request.method === 'GET' && url.pathname === `${API_PREFIX}message`) {
+  if (
+    request.method === 'GET' &&
+    [`${API_PREFIX}message`, `${API_PREFIX}attachment`, `${API_PREFIX}thread`].includes(url.pathname)
+  ) {
     need('mail.read')
     const id = q.get('id')
     const uid = Number(q.get('uid'))
@@ -116,7 +121,23 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
           ? { account: q.get('account')!, mailbox: q.get('mailbox')!, uid }
           : null
     if (!ref) throw new HttpError(400, 'id か、account・mailbox・uid を指定してください')
-    return json(await getMessageBody(sql, ref, `web:${props.clientName}`))
+    const by = `web:${props.clientName}`
+    if (url.pathname === `${API_PREFIX}thread`) return json(await getThread(sql, ref, by))
+    if (url.pathname === `${API_PREFIX}attachment`) {
+      const index = Number(q.get('index'))
+      if (!Number.isInteger(index) || index < 0) throw new HttpError(400, 'index を指定してください')
+      const a = await getAttachment(sql, ref, index, by)
+      // ファイル名は RFC 5987 で日本語も渡す。中身は画面側で保存させる（Bearer が要るのでリンクでは落とせない）
+      return new Response(a.content, {
+        headers: {
+          'Content-Type': a.mimeType,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(a.filename)}`,
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    }
+    return json(await getMessageBody(sql, ref, by))
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}mark-read`) {
     need('mail.triage')

@@ -62,12 +62,9 @@ function inlineCidImages(html: string, attachments: Attachment[]): { html: strin
   return { html: out, inlined }
 }
 
-export async function fetchBody(sql: Sql, account: Account, loc: BodyLocator): Promise<void> {
-  const [cached] = await sql`
-    select 1 from message_bodies where account_id = ${account.id} and mailbox = ${loc.mailbox} and uid = ${loc.uid}`
-  if (cached) return
-
-  const source = await sideConnection(account).run(async (client) => {
+// メールの原文を補助の接続で取る。大きすぎるものは断る
+async function loadSource(account: Account, loc: BodyLocator): Promise<Buffer> {
+  return sideConnection(account).run(async (client) => {
     const lock = await client.getMailboxLock(loc.mailbox, { readOnly: true })
     try {
       const meta = await client.fetchOne(String(loc.uid), { size: true }, { uid: true })
@@ -81,6 +78,42 @@ export async function fetchBody(sql: Sql, account: Account, loc: BodyLocator): P
       lock.release()
     }
   })
+}
+
+const ATTACHMENT_KEEP_MINUTES = 60
+
+// 添付ファイルを 1 つ取り出して attachment_blobs に置く。番号は本文の取得で返した attachments[].index と同じ
+// （postal-mime の attachments の並び順）
+export async function fetchAttachment(sql: Sql, account: Account, loc: BodyLocator, index: number): Promise<void> {
+  const [cached] = await sql`
+    select 1 from attachment_blobs
+    where account_id = ${account.id} and mailbox = ${loc.mailbox} and uid = ${loc.uid} and part_index = ${index}`
+  if (!cached) {
+    const parsed = await PostalMime.parse(await loadSource(account, loc))
+    const a = parsed.attachments[index]
+    if (!a) throw new Error(`添付ファイル ${index} 番が見つかりません`)
+    const content = Buffer.from(typeof a.content === 'string' ? a.content : new Uint8Array(a.content))
+    await sql`
+      insert into attachment_blobs ${sql({
+        account_id: account.id,
+        mailbox: loc.mailbox,
+        uid: loc.uid,
+        part_index: index,
+        filename: a.filename ?? `attachment-${index}`,
+        mime_type: a.mimeType || 'application/octet-stream',
+        content,
+      })}
+      on conflict do nothing`
+  }
+  await sql`delete from attachment_blobs where created_at < now() - make_interval(mins => ${ATTACHMENT_KEEP_MINUTES})`
+}
+
+export async function fetchBody(sql: Sql, account: Account, loc: BodyLocator): Promise<void> {
+  const [cached] = await sql`
+    select 1 from message_bodies where account_id = ${account.id} and mailbox = ${loc.mailbox} and uid = ${loc.uid}`
+  if (cached) return
+
+  const source = await loadSource(account, loc)
 
   const parsed = await PostalMime.parse(source)
   const inline = parsed.html ? inlineCidImages(parsed.html, parsed.attachments) : null

@@ -29,3 +29,6 @@ grant usage on sequence drafts_id_seq to mailhub_mcp;
 
 -- エイリアスは読むだけ（追加・削除は同期デーモン側の CLI）
 grant select on aliases to mailhub_mcp;
+
+-- 取り出した添付ファイルは読むだけ（取り出しと削除は同期デーモン）
+grant select on attachment_blobs to mailhub_mcp;

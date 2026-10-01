@@ -1,7 +1,8 @@
-// Worker から積まれた汎用の依頼（requests）を実行する。本文の取得（fetch_body）と送信（send）
+// Worker から積まれた汎用の依頼（requests）を実行する。本文・添付・スレッドの取得と、送信
 import type { Sql } from '@mailhub/db'
 import type { Account } from './accounts.ts'
-import { fetchBody } from './body.ts'
+import { fetchAttachment, fetchBody } from './body.ts'
+import { fetchThread } from './thread.ts'
 import { sendDraft } from './send.ts'
 
 type Log = (msg: string) => void
@@ -21,6 +22,13 @@ export async function runRequest(sql: Sql, accounts: Account[], id: string, log:
     if (req.kind === 'fetch_body') {
       const { mailbox, uid } = req.params as { mailbox: string; uid: number }
       await fetchBody(sql, account, { mailbox, uid: Number(uid) })
+    } else if (req.kind === 'fetch_attachment') {
+      const { mailbox, uid, index } = req.params as { mailbox: string; uid: number; index: number }
+      await fetchAttachment(sql, account, { mailbox, uid: Number(uid) }, Number(index))
+    } else if (req.kind === 'thread') {
+      const { mailbox, uid } = req.params as { mailbox: string; uid: number }
+      const thread = await fetchThread(sql, account, { mailbox, uid: Number(uid) })
+      await sql`update requests set result = ${sql.json(thread)} where id = ${id}`
     } else if (req.kind === 'send') {
       const { draftId } = req.params as { draftId: number }
       const sent = await sendDraft(sql, account, Number(draftId))
