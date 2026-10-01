@@ -33,7 +33,7 @@ const provider = (await ask(
   email.endsWith('@gmail.com') ? 'gmail' : 'generic',
 )) as Provider
 const preset = provider === 'generic' ? undefined : PRESETS[provider]
-const label = await ask('表示名', email)
+const label = await ask('表示名（送信するときの差出人名になります）', email)
 const imapHost = await ask('IMAP ホスト', preset?.imapHost)
 const imapPort = Number(await ask('IMAP ポート', String(preset?.imapPort ?? 993)))
 const smtpHost = await ask('SMTP ホスト', preset?.smtpHost)
