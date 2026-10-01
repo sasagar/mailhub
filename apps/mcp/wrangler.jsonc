@@ -6,12 +6,18 @@
   "compatibility_flags": ["nodejs_compat"],
   // 正規の URL は 1 つ（MCP_RESOURCE と揃える）。workers.dev からは受け付けない
   "workers_dev": false,
-  "routes": [{ "pattern": "mailhub.bktsk.com", "custom_domain": true }],
+  "routes": [
+    {
+      "pattern": "mailhub.bktsk.com",
+      "custom_domain": true,
+    },
+  ],
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      // 本番の Hyperdrive（同期デーモンと同じ Postgres に Tunnel 経由で）を作ったら差し替える
-      "id": "00000000000000000000000000000000",
+      // 本番: Workers VPC Service → Tunnel → 同期デーモンと同じ Postgres（ロール mailhub_mcp）。
+      // クエリキャッシュは無効（操作の完了やアーカイブ直後の一覧が古く見えないように）
+      "id": "9ba9aeb0b140496fb56fedb8ede565a8",
       // ローカル開発はリポジトリ直下の docker compose の Postgres
       "localConnectionString": "postgres://mailhub:mailhub@localhost:5432/mailhub",
     },
@@ -39,5 +45,7 @@
       "ALLOWED_EMAILS",
     ],
   },
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+  },
 }
