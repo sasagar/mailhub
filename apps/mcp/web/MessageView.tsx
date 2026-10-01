@@ -135,9 +135,30 @@ export function MessageView(props: {
   const useHtml = body?.html != null && !preferText
 
   // 枠の高さを中身に合わせる（スクリプトは動かさないが、同じオリジン扱いにして外から測る）
+  // 中身に合わせて枠を整える。横幅 600px 前後で組まれたメールは画面からはみ出す（枠の中は横に動かせない）ので、
+  // 画面より広ければ全体を縮小する。そのうえで高さを中身に合わせる
   const fit = () => {
+    const f = frame.current
+    const doc = f?.contentDocument
+    if (!f || !doc?.body) return
+    const root = doc.documentElement
+    root.style.zoom = '1'
+    const available = f.clientWidth
+    const needed = Math.max(root.scrollWidth, doc.body.scrollWidth)
+    const scale = needed > available ? available / needed : 1
+    root.style.zoom = String(scale)
+    // 縮小後の高さの返し方はブラウザで違うことがあるので、大きいほうを使う（切れるより余白が出るほうがよい）
+    f.style.height = `${Math.ceil(Math.max(root.scrollHeight, root.getBoundingClientRect().height)) + 2}px`
+  }
+
+  // 画像やフォントが後から読み込まれて大きさが変わったら合わせ直す
+  const watch = () => {
     const doc = frame.current?.contentDocument
-    if (frame.current && doc?.body) frame.current.style.height = `${doc.documentElement.scrollHeight}px`
+    if (!doc?.body) return
+    const observer = new ResizeObserver(() => fit())
+    observer.observe(doc.body)
+    for (const img of Array.from(doc.images)) img.addEventListener('load', fit)
+    return observer
   }
 
   return (
@@ -217,9 +238,7 @@ export function MessageView(props: {
                 srcDoc={frameDocument(body.html!, showImages, dark)}
                 onLoad={() => {
                   fit()
-                  // 画像の読み込みで高さが変わるので少し後にも合わせる
-                  setTimeout(fit, 500)
-                  setTimeout(fit, 2000)
+                  watch()
                 }}
               />
             ) : (
