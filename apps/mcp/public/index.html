@@ -10,6 +10,9 @@
     />
     <link rel="stylesheet" href="/page.css" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- ホーム画面から開いたとき・ログイン済みのときはアプリへ移る（以前の PWA の起動 URL が / のため） -->
+    <script src="/landing.js"></script>
   </head>
   <body>
     <main>
@@ -47,6 +50,8 @@
         mailhub は、作者本人が自分の複数のメールアカウント（Gmail を含む）を 1
         か所で整理するための個人用アプリです。受信トレイを差出人ごとにまとめて一括でアーカイブ・既読にし、アーカイブ済みを含むメールの検索と閲覧ができます。一般には提供していません。
       </p>
+
+      <p><a class="open-app" href="/app/">Open mailhub (author only)</a></p>
 
       <footer>
         <a href="/privacy">Privacy policy</a>
