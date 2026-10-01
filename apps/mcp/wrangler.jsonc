@@ -9,7 +9,8 @@
   // 画面は静的アセット（SPA）。API と OAuth のパスだけ Worker が先に処理する
   "assets": {
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
+    // 無いパスは 404 を返す（SPA の代替にすると、どんなパスでもホームページが 200 で返ってしまう）
+    "not_found_handling": "404-page",
     // API・OAuth のほか、説明ページとプライバシーポリシーも Worker を通す（Google の確認のアクセスを記録するため）
     "run_worker_first": [
       "/",
