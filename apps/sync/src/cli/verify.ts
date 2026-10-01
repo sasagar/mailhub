@@ -22,7 +22,7 @@ try {
       const onlyServer = [...server].filter((u) => !db.has(u))
       const onlyDb = [...db].filter((u) => !server.has(u))
       if (onlyServer.length || onlyDb.length) mismatch = true
-      console.log(`${account.label}: サーバー ${server.size} / DB ${db.size}`, { onlyServer, onlyDb })
+      console.log(`${account.email}: サーバー ${server.size} / DB ${db.size}`, { onlyServer, onlyDb })
     } finally {
       await client.logout()
     }

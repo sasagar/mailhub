@@ -5,7 +5,10 @@ export type Provider = 'gmail' | 'icloud' | 'generic'
 
 export type Account = {
   id: number
+  // 画面・ログに出す短い名前
   label: string
+  // 送信するときの差出人名
+  fromName: string
   email: string
   provider: Provider
   imapHost: string
@@ -28,11 +31,12 @@ export const PRESETS: Record<
 
 export async function loadAccounts(sql: Sql, key: Buffer): Promise<Account[]> {
   const rows = await sql`
-    select id, label, email, provider, imap_host, imap_port, smtp_host, smtp_port, username, auth_type, secret
+    select id, label, from_name, email, provider, imap_host, imap_port, smtp_host, smtp_port, username, auth_type, secret
     from accounts where enabled order by id`
   return rows.map((r) => ({
     id: r.id,
     label: r.label,
+    fromName: r.from_name,
     email: r.email,
     provider: r.provider,
     imapHost: r.imap_host,

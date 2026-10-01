@@ -1,5 +1,5 @@
 // Gmail アカウントを OAuth で登録する（既にあればアプリパスワードから切り替える）。
-//   pnpm google-auth --email you@gmail.com
+//   pnpm google-auth --email you@gmail.com [--label 画面の表示名] [--from-name 送信時の差出人名]
 // 表示された URL をどの端末のブラウザで開いてもよい。同意後に 127.0.0.1 へ戻される:
 // - このコマンドと同じマシンのブラウザなら自動で受け取る
 // - 別の端末なら「接続できません」のページになるので、そのアドレスバーの URL を貼り付ける
@@ -18,7 +18,9 @@ import { createImapClient } from '../imap/client.ts'
 const PORT = 8765
 const redirectUri = `http://127.0.0.1:${PORT}/`
 
-const { values } = parseArgs({ options: { email: { type: 'string' }, label: { type: 'string' } } })
+const { values } = parseArgs({
+  options: { email: { type: 'string' }, label: { type: 'string' }, 'from-name': { type: 'string' } },
+})
 const email = values.email?.trim().toLowerCase()
 if (!email) {
   console.error('--email <Gmail のアドレス> を指定してください')
@@ -107,6 +109,7 @@ try {
   const [row] = await sql`
     insert into accounts ${sql({
       label: values.label ?? email,
+      from_name: values['from-name'] ?? values.label ?? email,
       email,
       provider: 'gmail',
       imap_host: preset.imapHost,
@@ -117,7 +120,9 @@ try {
       auth_type: 'oauth',
       secret,
     })}
-    on conflict (email) do update set auth_type = 'oauth', secret = excluded.secret, username = excluded.username
+    on conflict (email) do update set auth_type = 'oauth', secret = excluded.secret, username = excluded.username,
+      label = coalesce(${values.label ?? null}, accounts.label),
+      from_name = coalesce(${values['from-name'] ?? null}, accounts.from_name)
     returning id, (xmax = 0) as inserted`
   console.log(`${email} を${row?.inserted ? '追加' : 'OAuth に切り替え'}ました。デーモンを再起動すると反映されます`)
 } finally {

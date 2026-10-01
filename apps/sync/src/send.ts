@@ -45,7 +45,7 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
     const domain = account.email.split('@')[1] ?? 'mailhub.local'
     const messageId = `<${randomUUID()}@${domain}>`
     const options = {
-      from: { name: account.label, address: account.email },
+      from: { name: account.fromName, address: account.email },
       to: fmt(to),
       cc: fmt(cc),
       bcc: fmt(bcc),

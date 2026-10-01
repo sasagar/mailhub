@@ -33,7 +33,8 @@ const provider = (await ask(
   email.endsWith('@gmail.com') ? 'gmail' : 'generic',
 )) as Provider
 const preset = provider === 'generic' ? undefined : PRESETS[provider]
-const label = await ask('表示名（送信するときの差出人名になります）', email)
+const label = await ask('表示名（画面や一覧に出す短い名前。例: 仕事用、iCloud）', email)
+const fromName = await ask('差出人名（送信するときに相手に見える名前）', label)
 const imapHost = await ask('IMAP ホスト', preset?.imapHost)
 const imapPort = Number(await ask('IMAP ポート', String(preset?.imapPort ?? 993)))
 const smtpHost = await ask('SMTP ホスト', preset?.smtpHost)
@@ -53,6 +54,7 @@ try {
   await sql`
     insert into accounts ${sql({
       label,
+      from_name: fromName,
       email,
       provider,
       imap_host: imapHost,

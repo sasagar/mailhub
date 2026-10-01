@@ -200,7 +200,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
               <option value="">すべてのアカウント</option>
               {accounts.map((a) => (
                 <option key={a.account} value={a.account}>
-                  {a.label}
+                  {accountName(a, accounts)}
                 </option>
               ))}
             </select>
@@ -275,6 +275,12 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
       )}
     </div>
   )
+}
+
+// 選択肢に出す名前。表示名が同じアカウントがあるときだけアドレスを添えて見分けられるようにする
+function accountName(a: Account, all: Account[]): string {
+  const dup = all.some((b) => b !== a && b.label === a.label)
+  return dup || a.label === a.account ? `${a.label} <${a.account}>` : a.label
 }
 
 // 1 通分の行。アイコンを押すと選択、本文側を押すと開く
