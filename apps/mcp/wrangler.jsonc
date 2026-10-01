@@ -4,6 +4,9 @@
   "main": "src/server.ts",
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
+  // 正規の URL は 1 つ（MCP_RESOURCE と揃える）。workers.dev からは受け付けない
+  "workers_dev": false,
+  "routes": [{ "pattern": "mailhub.bktsk.com", "custom_domain": true }],
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
