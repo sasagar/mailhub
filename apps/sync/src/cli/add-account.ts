@@ -43,7 +43,7 @@ const password = await askSecret('アプリパスワード: ')
 rl.close()
 
 // 保存前に本当に繋がるか確かめる
-const client = createImapClient({ imapHost, imapPort, username, password })
+const client = createImapClient({ imapHost, imapPort, username }, { pass: password })
 await client.connect()
 await client.logout()
 console.log('IMAP ログイン成功')

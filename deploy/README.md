@@ -48,6 +48,20 @@
    kubectl -n mailhub rollout restart deploy/mailhub-sync   # 追加したアカウントを読み込ませる
    ```
 
+## Gmail を OAuth で使う（アプリパスワードの代わり）
+
+1. Google Cloud で OAuth クライアントを作る。種類は「デスクトップ アプリ」、同意画面は外部・**公開ステータス「本番環境」**
+   （「テスト中」だと更新用トークンが 7 日で切れる）、スコープは `https://mail.google.com/`。未検証のまま個人利用で使う
+2. `sh deploy/scripts/set-google-client.sh` でクライアント ID とシークレットを Secret に入れる
+3. Pod の中で同意する（表示された URL をブラウザで開き、許可後に 127.0.0.1 へ戻されたページの URL を貼り付ける）
+
+   ```sh
+   kubectl -n mailhub exec -it deploy/mailhub-sync -- node_modules/.bin/tsx src/cli/google-auth.ts --email you@gmail.com
+   kubectl -n mailhub rollout restart deploy/mailhub-sync
+   ```
+
+   既にアプリパスワードで登録してあるアカウントは OAuth に切り替わる（アプリパスワードは Google 側で削除してよい）
+
 ## Remote MCP
 
 1. Cloudflare Access に SaaS（OIDC）アプリを作る。リダイレクト URL は `https://<ホスト>/callback`

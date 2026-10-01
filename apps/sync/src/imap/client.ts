@@ -1,12 +1,24 @@
 import { ImapFlow } from 'imapflow'
 import type { Account } from '../accounts.ts'
+import { accessTokenFor, loadGoogleClient } from '../google.ts'
 
-export function createImapClient(account: Pick<Account, 'imapHost' | 'imapPort' | 'username' | 'password'>): ImapFlow {
+type Target = Pick<Account, 'imapHost' | 'imapPort' | 'username'>
+type Credential = { pass: string } | { accessToken: string }
+
+export function createImapClient(target: Target, credential: Credential): ImapFlow {
   return new ImapFlow({
-    host: account.imapHost,
-    port: account.imapPort,
+    host: target.imapHost,
+    port: target.imapPort,
     secure: true,
-    auth: { user: account.username, pass: account.password },
+    auth: { user: target.username, ...credential },
     logger: false,
   })
+}
+
+// アカウントの認証方式に合わせて接続情報を用意する。OAuth は接続のたびにアクセストークンを取り直す
+export async function imapClientFor(account: Account): Promise<ImapFlow> {
+  if (account.authType === 'password') return createImapClient(account, { pass: account.secret })
+  const google = loadGoogleClient()
+  if (!google) throw new Error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が未設定です')
+  return createImapClient(account, { accessToken: await accessTokenFor(google, account.secret) })
 }

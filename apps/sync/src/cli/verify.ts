@@ -2,14 +2,14 @@
 import { createSql } from '@mailhub/db'
 import { loadAccounts } from '../accounts.ts'
 import { loadConfig } from '../config.ts'
-import { createImapClient } from '../imap/client.ts'
+import { imapClientFor } from '../imap/client.ts'
 
 const config = loadConfig()
 const sql = createSql(config.databaseUrl, { max: 1 })
 let mismatch = false
 try {
   for (const account of await loadAccounts(sql, config.masterKey)) {
-    const client = createImapClient(account)
+    const client = await imapClientFor(account)
     await client.connect()
     try {
       const lock = await client.getMailboxLock('INBOX', { readOnly: true })

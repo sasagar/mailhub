@@ -8,7 +8,8 @@
     "migrate": "tsx --env-file-if-exists=../../.env src/cli/migrate.ts",
     "account:add": "tsx --env-file-if-exists=../../.env src/cli/add-account.ts",
     "verify": "tsx --env-file-if-exists=../../.env src/cli/verify.ts",
-    "archive": "tsx --env-file-if-exists=../../.env src/cli/archive.ts"
+    "archive": "tsx --env-file-if-exists=../../.env src/cli/archive.ts",
+    "google-auth": "tsx --env-file-if-exists=../../.env src/cli/google-auth.ts"
   },
   "dependencies": {
     "@mailhub/db": "workspace:*",

@@ -10,7 +10,8 @@
     "sync": "pnpm --filter @mailhub/sync start",
     "account:add": "pnpm --filter @mailhub/sync account:add",
     "verify": "pnpm --filter @mailhub/sync verify",
-    "archive": "pnpm --filter @mailhub/sync archive"
+    "archive": "pnpm --filter @mailhub/sync archive",
+    "google-auth": "pnpm --filter @mailhub/sync google-auth"
   },
   "devDependencies": {
     "@types/node": "^24.19.0",

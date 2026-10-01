@@ -1,7 +1,7 @@
 import type { ImapFlow } from 'imapflow'
 import type { Sql } from '@mailhub/db'
 import type { Account } from '../accounts.ts'
-import { createImapClient } from '../imap/client.ts'
+import { imapClientFor } from '../imap/client.ts'
 import { refreshMailboxes } from '../imap/mailboxes.ts'
 import { syncMailbox } from './mailbox.ts'
 import { requeueStale, runQueuedOperations } from './operations.ts'
@@ -63,7 +63,7 @@ export class AccountSync {
 
   // 接続してから切れるまで。切れたら resolve する
   private async session(): Promise<void> {
-    const client = createImapClient(this.account)
+    const client = await imapClientFor(this.account)
     this.client = client
     const closed = new Promise<void>((resolve) => client.once('close', () => resolve()))
     client.on('error', (err: Error) => this.log(`IMAP エラー: ${err.message}`))
