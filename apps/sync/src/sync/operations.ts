@@ -1,6 +1,7 @@
 import type { ImapFlow } from 'imapflow'
 import type { Sql } from '@mailhub/db'
 import type { Account } from '../accounts.ts'
+import { lastImapError } from '../imap/client.ts'
 import { moveTarget, type MailboxRow } from '../imap/mailboxes.ts'
 
 type Log = (msg: string) => void
@@ -90,7 +91,14 @@ async function execute(sql: Sql, client: ImapFlow, account: Account, mailboxes: 
   // 既読は移動の前に付ける。移動すると移動先で UID が振り直され、元の UID では指定できなくなる
   if (op.params.markSeen) await client.messageFlagsAdd(op.uids, ['\\Seen'], { uid: true })
   const res = await client.messageMove(op.uids, target.path, { uid: true })
-  const moved = res ? (res.uidMap?.size ?? op.uids.length) : 0
+  // 失敗しても imapflow は例外にしない。そのまま DB から消すと、メールは動いていないのに一覧から消え、
+  // 次の同期で ID を振り直して戻ってくる（2026-10-02 SoftBank の迷惑メールで起きた）ので、失敗として残す
+  if (!res) {
+    throw new Error(
+      `${target.path} へ移動できませんでした: ${lastImapError(client) ?? 'サーバーが理由を返しませんでした'}`,
+    )
+  }
+  const moved = res.uidMap?.size ?? op.uids.length
 
   // サーバーで動いたものはすぐ DB からも消す（次の同期を待たずに一覧に反映させる）
   await sql`delete from messages where mailbox_id = ${source.id} and uid = any(${op.uids}::bigint[])`

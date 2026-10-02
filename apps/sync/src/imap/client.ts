@@ -9,14 +9,34 @@ setDefaultResultOrder('ipv4first')
 type Target = Pick<Account, 'imapHost' | 'imapPort' | 'username'>
 type Credential = { pass: string } | { accessToken: string }
 
+// imapflow は MOVE などが失敗しても例外にせず false を返し、理由はロガーに warn で出すだけ。
+// ロガーを切っていると理由が分からないので、最後の warn / error をクライアントごとに覚えておく
+const lastErrors = new WeakMap<ImapFlow, string>()
+
+export function lastImapError(client: ImapFlow): string | undefined {
+  return lastErrors.get(client)
+}
+
 export function createImapClient(target: Target, credential: Credential): ImapFlow {
-  return new ImapFlow({
+  let client: ImapFlow | undefined
+  const remember = (entry: {
+    err?: { message?: string; response?: string; serverResponseCode?: string }
+    msg?: string
+  }) => {
+    if (!client) return
+    const err = entry.err
+    const text = [err?.serverResponseCode, err?.response || err?.message || entry.msg].filter(Boolean).join(' ')
+    if (text) lastErrors.set(client, text)
+  }
+  const noop = () => {}
+  client = new ImapFlow({
     host: target.imapHost,
     port: target.imapPort,
     secure: true,
     auth: { user: target.username, ...credential },
-    logger: false,
+    logger: { debug: noop, info: noop, warn: remember, error: remember },
   })
+  return client
 }
 
 // アカウントの認証方式に合わせて接続情報を用意する。OAuth は接続のたびにアクセストークンを取り直す
