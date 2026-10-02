@@ -45,12 +45,13 @@ export function useArchive(onDone: () => void) {
   const dismiss = useCallback((id: number) => setJobs((list) => list.filter((j) => j.id !== id)), [])
 
   const archive = useCallback(
-    async (body: Record<string, unknown>, label: string) => {
+    // path を変えると迷惑メールの削除（/mcp/api/delete-junk）も同じ進行状況の欄で追える
+    async (body: Record<string, unknown>, label: string, path = '/mcp/api/archive') => {
       const id = Date.now() + Math.random()
       setNow(Date.now())
       setJobs((list) => [...list, { id, label, phase: 'sending', startedAt: Date.now() }])
       try {
-        const queued = await api<Queued>('/mcp/api/archive', { method: 'POST', body: JSON.stringify(body) })
+        const queued = await api<Queued>(path, { method: 'POST', body: JSON.stringify(body) })
         const ids = queued.operations.map((o) => o.operationId)
         if (ids.length === 0) {
           update(id, { phase: 'done', count: 0 })
@@ -66,7 +67,11 @@ export function useArchive(onDone: () => void) {
           if (ops.every((o) => o.status === 'done' || o.status === 'failed')) {
             const failed = ops.find((o) => o.status === 'failed')
             if (failed) update(id, { phase: 'failed', error: failed.error ?? '理由不明' })
-            else update(id, { phase: 'done', count: ops.reduce((s, o) => s + (o.result?.moved ?? 0), 0) })
+            else
+              update(id, {
+                phase: 'done',
+                count: ops.reduce((s, o) => s + (o.result?.moved ?? o.result?.deleted ?? 0), 0),
+              })
             onDone()
             return
           }

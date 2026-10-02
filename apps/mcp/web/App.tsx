@@ -247,6 +247,8 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
         <Timeline
           key={view}
           folder={view === 'junk' ? 'junk' : 'inbox'}
+          // 削除は取り消せないので Web 画面のトークン（mail.send を持つ）だけに出す
+          canDelete={overview?.me.scopes.includes('mail.send') ?? false}
           account={account}
           canTriage={canTriage}
           archive={archive}
@@ -440,7 +442,7 @@ function Composition({ senders, total }: { senders: Sender[]; total: number }) {
   )
 }
 
-type ArchiveFn = (body: Record<string, unknown>, label: string) => Promise<void>
+type ArchiveFn = (body: Record<string, unknown>, label: string, path?: string) => Promise<void>
 
 function Senders(props: {
   senders: Sender[] | null
@@ -680,6 +682,7 @@ function ConfirmButton(props: {
 // 新しい順の一覧。folder が junk のときは迷惑メールフォルダを出し、「迷惑メールではない」で受信トレイに戻せる
 function Timeline(props: {
   folder: 'inbox' | 'junk'
+  canDelete: boolean
   account: string
   canTriage: boolean
   archive: ArchiveFn
@@ -736,6 +739,23 @@ function Timeline(props: {
     setBusy(false)
   }
   const junk = props.folder === 'junk'
+  const DELETE = '/mcp/api/delete-junk'
+  const deleteSelected = async () => {
+    const ids = [...selected]
+    setSelected(new Set())
+    setBusy(true)
+    await props.archive({ message_ids: ids }, `迷惑メールを削除: ${ids.length} 通`, DELETE)
+    setBusy(false)
+  }
+  const emptyJunk = async () => {
+    setBusy(true)
+    await props.archive(
+      { all: true, account: props.account || undefined },
+      `迷惑メールフォルダを空にする: ${total} 通`,
+      DELETE,
+    )
+    setBusy(false)
+  }
 
   const allSelected = useMemo(
     () => messages != null && messages.length > 0 && messages.every((m) => selected.has(m.id)),
@@ -762,9 +782,20 @@ function Timeline(props: {
         )}
       </div>
       {junk && (
-        <p className="junk-hint">
-          迷惑メールフォルダのメールです。開いても画像は読み込みません。数分ごとに取り直しています。
-        </p>
+        <div className="junk-tools">
+          <p className="junk-hint">
+            迷惑メールフォルダのメールです。開いても画像は読み込みません。数分ごとに取り直しています。
+          </p>
+          {props.canDelete && total > 0 && (
+            <ConfirmButton
+              label="迷惑メールフォルダを空にする"
+              confirmLabel={`${n(total)} 通を完全に削除`}
+              busyLabel="削除中"
+              busy={busy}
+              onConfirm={() => void emptyJunk()}
+            />
+          )}
+        </div>
       )}
       {messages.length === 0 ? (
         <p className="notice">
@@ -801,9 +832,20 @@ function Timeline(props: {
             <b>{n(selected.size)}</b> 通を選択中
           </span>
           {junk ? (
-            <button className="primary" disabled={busy} onClick={() => void run('not_spam', false)}>
-              {busy ? '処理中' : '迷惑メールではない'}
-            </button>
+            <>
+              {props.canDelete && (
+                <ConfirmButton
+                  label="削除"
+                  confirmLabel={`${n(selected.size)} 通を完全に削除`}
+                  busyLabel="削除中"
+                  busy={busy}
+                  onConfirm={() => void deleteSelected()}
+                />
+              )}
+              <button className="primary" disabled={busy} onClick={() => void run('not_spam', false)}>
+                {busy ? '処理中' : '迷惑メールではない'}
+              </button>
+            </>
           ) : (
             <>
               <button className="quiet" disabled={busy} onClick={() => void run('spam', true)}>

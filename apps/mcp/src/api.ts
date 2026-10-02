@@ -10,6 +10,7 @@ import {
   enqueueMarkSeen,
   getAttachment,
   getMessageBody,
+  enqueueEmptyJunk,
   UserError,
   getThread,
   getOperations,
@@ -219,6 +220,24 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     const ids = (q.get('ids') ?? '').split(',').filter((s) => /^\d+$/.test(s))
     if (ids.length === 0) throw new HttpError(400, 'ids を指定してください')
     return json(await getOperations(sql, ids.slice(0, 100)))
+  }
+  // 迷惑メールの削除は取り消せないので Web 画面からだけ受ける（MCP にはツールを出さない）。
+  // Web 画面のトークンだけが mail.send を持つので、それで見分ける
+  if (request.method === 'POST' && url.pathname === `${API_PREFIX}delete-junk`) {
+    need('mail.triage')
+    need('mail.send')
+    const body = z
+      .union([
+        z.object({ message_ids: z.array(numericId).min(1).max(5000) }),
+        z.object({ all: z.literal(true), account: z.string().optional() }),
+      ])
+      .safeParse(await request.json().catch(() => null))
+    if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
+    const requestedBy = `web:${props.clientName}`
+    if ('all' in body.data) return json(await enqueueEmptyJunk(sql, { account: body.data.account, requestedBy }))
+    return json(
+      await enqueueArchive(sql, { messageIds: body.data.message_ids, markSeen: false, requestedBy, action: 'delete' }),
+    )
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}archive`) {
     need('mail.triage')

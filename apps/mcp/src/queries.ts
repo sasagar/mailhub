@@ -115,8 +115,9 @@ export async function senderSummary(sql: Sql, opts: { account?: string; limit: n
 }
 
 // 移動の操作。archive と spam は受信トレイから、not_spam は迷惑メールフォルダ（から受信トレイへ）
-export type MoveAction = 'archive' | 'spam' | 'not_spam'
-const sourceRole = (action: MoveAction) => (action === 'not_spam' ? 'junk' : 'inbox')
+// delete は移動ではないが、迷惑メールフォルダから同じ形で積む（Web 画面からだけ）
+export type MoveAction = 'archive' | 'spam' | 'not_spam' | 'delete'
+const sourceRole = (action: MoveAction) => (action === 'not_spam' || action === 'delete' ? 'junk' : 'inbox')
 
 // 一括アーカイブ（や迷惑メールへの移動）を操作キューに積む。実行は同期デーモン（フォルダごとに IMAP の MOVE 1 回）。
 // 移動元に無い ID（既に移動済み・存在しない）は積まずに notFound で返す
@@ -722,4 +723,21 @@ export async function getThread(sql: Sql, ref: MessageRef, requestedBy: string):
   } catch (err) {
     throw new UserError(`スレッドを取得できませんでした: ${(err as Error).message}`)
   }
+}
+
+// 迷惑メールフォルダを空にする（アカウントを指定すればそのアカウントだけ）。Web 画面からだけ使う
+export async function enqueueEmptyJunk(sql: Sql, opts: { account?: string; requestedBy: string }) {
+  const rows = await sql`
+    select m.id
+    from messages m
+    join mailboxes b on b.id = m.mailbox_id and b.role = 'junk'
+    join accounts a on a.id = m.account_id and a.enabled
+    ${opts.account ? sql`where a.email = ${opts.account}` : sql``}`
+  if (rows.length === 0) return { operations: [], notFound: [] }
+  return enqueueArchive(sql, {
+    messageIds: rows.map((r) => String(r.id)),
+    markSeen: false,
+    requestedBy: opts.requestedBy,
+    action: 'delete',
+  })
 }

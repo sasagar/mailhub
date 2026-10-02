@@ -1390,3 +1390,12 @@ html.sheet-open body {
   font-size: 13px;
   color: var(--ink-soft);
 }
+.junk-tools {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin: 0 0 10px;
+}
+.junk-tools .junk-hint {
+  margin: 0;
+}

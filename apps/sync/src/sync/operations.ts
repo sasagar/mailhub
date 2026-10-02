@@ -9,7 +9,7 @@ type Log = (msg: string) => void
 type Operation = {
   id: string
   mailboxId: number
-  kind: 'archive' | 'mark_seen' | 'spam' | 'not_spam'
+  kind: 'archive' | 'mark_seen' | 'spam' | 'not_spam' | 'delete'
   uids: number[]
   params: { markSeen?: boolean }
 }
@@ -56,7 +56,8 @@ export async function runQueuedOperations(
     try {
       const result = await execute(sql, client, account, mailboxes, op)
       await sql`update operations set status = 'done', result = ${sql.json(result)}, finished_at = now() where id = ${op.id}`
-      log(`操作 #${op.id} ${op.kind}: ${'moved' in result ? result.moved : result.marked} 通`)
+      const count = 'moved' in result ? result.moved : 'deleted' in result ? result.deleted : result.marked
+      log(`操作 #${op.id} ${op.kind}: ${count} 通`)
     } catch (err) {
       const message = (err as Error).message
       await sql`update operations set status = 'failed', error = ${message}, finished_at = now() where id = ${op.id}`
@@ -79,6 +80,16 @@ async function execute(sql: Sql, client: ImapFlow, account: Account, mailboxes: 
       update messages set flags = array_append(flags, '\\Seen')
       where mailbox_id = ${source.id} and uid = any(${op.uids}::bigint[]) and not ('\\Seen' = any(flags))`
     return { marked: op.uids.length }
+  }
+
+  if (op.kind === 'delete') {
+    // 迷惑メールフォルダのものだけ（Worker 側でも絞っている）。\Deleted を付けて EXPUNGE する。
+    // 容量がいっぱいで移動できないアカウント（SoftBank）でも、削除なら空けられる
+    if (source.role !== 'junk') throw new Error('削除できるのは迷惑メールフォルダのメールだけです')
+    const ok = await client.messageDelete(op.uids, { uid: true })
+    if (!ok) throw new Error(`削除できませんでした: ${lastImapError(client) ?? 'サーバーが理由を返しませんでした'}`)
+    await sql`delete from messages where mailbox_id = ${source.id} and uid = any(${op.uids}::bigint[])`
+    return { deleted: op.uids.length }
   }
 
   const target = moveTarget(op.kind, mailboxes, account.provider)

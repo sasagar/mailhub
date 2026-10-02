@@ -26,7 +26,7 @@ export type Operation = {
   operationId: string
   status: 'queued' | 'running' | 'done' | 'failed'
   count: number
-  result: { moved?: number } | null
+  result: { moved?: number; deleted?: number } | null
   error: string | null
 }
 export type SearchHit = {
