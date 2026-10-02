@@ -68,6 +68,13 @@ async function loadStoredState(sql: Sql, mailboxId: number): Promise<StoredState
   }
 }
 
+// 壊れた Date ヘッダー（迷惑メールに多い）は Invalid Date になり、DB に書くときに例外になるので null にする
+function validDate(value: Date | string | undefined | null): Date | null {
+  if (!value) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 // range は UID の範囲（"N:*"）か UID の配列。minUid を渡すとそれ未満を捨てる
 async function fetchMessages(
   sql: Sql,
@@ -116,8 +123,8 @@ function toRow(sql: Sql, accountId: number, mailboxId: number, msg: FetchMessage
     from_addr: addrs(env?.from),
     to_addrs: addrs(env?.to),
     cc_addrs: addrs(env?.cc),
-    sent_at: env?.date ?? null,
-    received_at: msg.internalDate ? new Date(msg.internalDate) : null,
+    sent_at: validDate(env?.date),
+    received_at: validDate(msg.internalDate),
     flags: [...(msg.flags ?? [])],
     labels: [...(msg.labels ?? [])],
     size: msg.size ?? null,
