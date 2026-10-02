@@ -380,36 +380,55 @@ function PullIndicator({ pull, ready, refreshing }: { pull: number; ready: boole
 }
 
 // 画面下の進行状況。PWA では押した後に何が起きているか見えにくいので、段階と経過秒数を出し続ける
+// 画面下の進行状況。連続で片付けても積み上がらないよう、動いているものと終わったものは 1 枚にまとめる。
+// 失敗だけは閉じるまで 1 件ずつ残す（理由を読んでもらう必要があるため）
 function Activity({ jobs, now, onDismiss }: { jobs: Job[]; now: number; onDismiss: (id: number) => void }) {
+  const active = jobs.filter((j) => j.phase !== 'done' && j.phase !== 'failed')
+  const done = jobs.filter((j) => j.phase === 'done')
+  const failed = jobs.filter((j) => j.phase === 'failed')
   if (jobs.length === 0) return null
+
+  const latest = active.at(-1)
+  const seconds = latest ? Math.max(0, Math.round((now - active[0]!.startedAt) / 1000)) : 0
+  const waiting = active.reduce((s, j) => s + (j.count ?? 0), 0)
+  const finished = done.reduce((s, j) => s + (j.count ?? 0), 0)
+
   return (
     <div className="activity" aria-live="polite">
-      {jobs.map((j) => {
-        const finished = j.phase === 'done' || j.phase === 'failed'
-        const seconds = Math.max(0, Math.round((now - j.startedAt) / 1000))
-        return (
-          <div key={j.id} className={`job ${j.phase}`}>
+      {failed.map((j) => (
+        <div key={j.id} className="job failed">
+          <div className="job-line">
+            <span className="job-label">{j.label}</span>
+            <span className="job-phase">失敗しました</span>
+            <button className="job-close" onClick={() => onDismiss(j.id)} aria-label="閉じる">
+              閉じる
+            </button>
+          </div>
+          <p className="job-error">{j.error}</p>
+        </div>
+      ))}
+      {latest ? (
+        <div className="job">
+          <div className="job-line">
+            <span className="spinner" aria-hidden="true" />
+            <span className="job-label">{active.length > 1 ? `${active.length} 件を処理中` : latest.label}</span>
+            <span className="job-phase">
+              {active.length > 1 ? `最後: ${latest.label}` : PHASE_LABEL[latest.phase]}
+              {waiting > 0 && `（${n(waiting)} 通）`}・{seconds} 秒{done.length > 0 && `・完了 ${n(done.length)} 件`}
+            </span>
+          </div>
+          <span className="progress" aria-hidden="true" />
+        </div>
+      ) : (
+        done.length > 0 && (
+          <div className="job done">
             <div className="job-line">
-              {!finished && <span className="spinner" aria-hidden="true" />}
-              <span className="job-label">{j.label}</span>
-              <span className="job-phase">
-                {j.phase === 'done'
-                  ? `${n(j.count ?? 0)} 通をアーカイブしました`
-                  : j.phase === 'failed'
-                    ? '失敗しました'
-                    : `${PHASE_LABEL[j.phase]}${j.count ? `（${n(j.count)} 通）` : ''}・${seconds} 秒`}
-              </span>
-              {j.phase === 'failed' && (
-                <button className="job-close" onClick={() => onDismiss(j.id)} aria-label="閉じる">
-                  閉じる
-                </button>
-              )}
+              <span className="job-label">{done.length > 1 ? `${done.length} 件の片付けが完了` : done[0]!.label}</span>
+              <span className="job-phase">完了（{n(finished)} 通）</span>
             </div>
-            {j.phase === 'failed' && <p className="job-error">{j.error}</p>}
-            {!finished && <span className="progress" aria-hidden="true" />}
           </div>
         )
-      })}
+      )}
     </div>
   )
 }
