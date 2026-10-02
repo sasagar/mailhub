@@ -18,11 +18,11 @@ const fmtSize = (bytes: number) =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 
 // HTML メールを隔離した枠で見せるための文書。スクリプトは動かさない（sandbox に allow-scripts を付けない）。
-// 外部画像は常に読み込む（2026-10-02 ユーザー判断。Spark と同じ）。リンクは別のタブで開く
+// 外部画像は常に読み込む（2026-10-02 ユーザー判断）。ただし API が画像の URL を mailhub の画像プロキシに
+// 書き換えて返すので、読み込むのは mailhub からだけにする（書き換え漏れがあっても相手に IP を渡さない）。
+// リンクは別のタブで開く
 function frameDocument(html: string, dark: boolean): string {
-  const csp = ["default-src 'none'", "style-src 'unsafe-inline'", 'img-src data: https: http:', "font-src 'none'"].join(
-    '; ',
-  )
+  const csp = ["default-src 'none'", "style-src 'unsafe-inline'", "img-src 'self' data:", "font-src 'none'"].join('; ')
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <base target="_blank">

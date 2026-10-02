@@ -1,5 +1,6 @@
 import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provider'
 import { isScope, SCOPES, type Props, type Scope } from '../scopes.ts'
+import { IMAGE_PREFIX, serveImage } from '../images.ts'
 import { renderConsent, securityHeaders } from './html.ts'
 import { authorizeUrl, createPkce, exchangeCode, sha256, verifyIdToken } from './upstream.ts'
 
@@ -69,6 +70,8 @@ export const authHandler = {
       )
       return res
     }
+    // 画像プロキシ。img タグは Bearer を送れないので、トークンではなく URL の署名で守る
+    if (url.pathname.startsWith(IMAGE_PREFIX)) return serveImage(request, env.IMAGE_PROXY_KEY)
     const verification = SITE_VERIFICATION[url.pathname]
     if (verification && request.method === 'GET') {
       return new Response(verification, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })

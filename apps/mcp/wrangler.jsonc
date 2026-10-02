@@ -23,6 +23,7 @@
       "/register",
       "/callback",
       "/.well-known/*",
+      "/img/*",
       "/google86918974a41ea5c2.html",
     ],
   },
@@ -63,6 +64,8 @@
       "ACCESS_AUTHORIZATION_URL",
       "ACCESS_JWKS_URL",
       "ALLOWED_EMAILS",
+      // 画像プロキシの URL の署名用
+      "IMAGE_PROXY_KEY",
     ],
   },
   "observability": {

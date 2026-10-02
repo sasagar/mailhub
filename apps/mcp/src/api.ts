@@ -21,6 +21,7 @@ import {
   senderSummary,
   updateDraft,
 } from './queries.ts'
+import { proxyImages } from './images.ts'
 import type { Props, Scope } from './scopes.ts'
 
 export const API_PREFIX = '/mcp/api/'
@@ -65,7 +66,7 @@ const ArchiveBody = z.union([
   }),
 ])
 
-async function route(request: Request, sql: Sql, props: Props): Promise<Response> {
+async function route(request: Request, env: Env, sql: Sql, props: Props): Promise<Response> {
   const url = new URL(request.url)
   const q = url.searchParams
   const need = (scope: Scope) => {
@@ -137,7 +138,10 @@ async function route(request: Request, sql: Sql, props: Props): Promise<Response
         },
       })
     }
-    return json(await getMessageBody(sql, ref, by))
+    const body = await getMessageBody(sql, ref, by)
+    // 外部画像は mailhub 経由で読み込ませる（相手のサーバーに閲覧者の IP を渡さない）
+    if (body.html) body.html = await proxyImages(body.html, url.origin, env.IMAGE_PROXY_KEY)
+    return json(body)
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}mark-read`) {
     need('mail.triage')
@@ -226,7 +230,7 @@ export const restApi = {
     }
     const sql = createSql(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false })
     try {
-      return await route(request, sql, props as Props)
+      return await route(request, env, sql, props as Props)
     } catch (err) {
       if (err instanceof HttpError) return json({ error: err.message }, err.status)
       console.error(`${new URL(request.url).pathname}: ${(err as Error).message}`)
