@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { externalUrl, IMAGE_PREFIX, proxyImages, rewriteImages, serveImage } from './images.ts'
+import { blockImages, externalUrl, IMAGE_PREFIX, proxyImages, rewriteImages, serveImage } from './images.ts'
 
 const p = (url: string) => `P[${url}]`
 
@@ -73,5 +73,13 @@ describe('proxyImages と serveImage', () => {
     expect((await serveImage(new Request(forged), secret)).status).toBe(403)
     expect((await serveImage(new Request(src), 'other-secret')).status).toBe(403)
     expect(enc).toBeTruthy()
+  })
+})
+
+describe('blockImages', () => {
+  it('外部画像を data: に差し替え、外へは取りに行かせない', () => {
+    const out = blockImages('<img src="https://a.example/x.png"><div style="background:url(https://a.example/y.png)">')
+    expect(out).not.toContain('a.example')
+    expect(out).toContain('src="data:image/gif;base64,')
   })
 })

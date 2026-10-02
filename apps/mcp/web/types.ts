@@ -6,6 +6,8 @@ export type Account = {
   aliases: Alias[]
   total: number
   unread: number
+  // 迷惑メールフォルダの件数
+  junk: number
   syncedAt: string | null
 }
 export type Overview = { me: { email: string; scopes: string[] }; accounts: Account[] }
@@ -51,6 +53,9 @@ export type MessageBody = {
   uid: number
   messageId: string | null
   unread: boolean | null
+  // 迷惑メールフォルダのメール。画像は求めたときだけ読み込む（imagesBlocked）
+  junk: boolean
+  imagesBlocked: boolean
   headers: {
     subject: string | null
     from: Addr | null

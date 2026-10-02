@@ -1350,3 +1350,43 @@ html.sheet-open body {
 .thread-error {
   margin-top: 16px;
 }
+
+/* 狭い画面ではタブを詰め、選択中の操作バーは 2 段にする（ボタンが 3 つ並ぶため） */
+@media (max-width: 520px) {
+  .tabs {
+    display: grid;
+    width: 100%;
+    grid-auto-columns: auto;
+  }
+  .tabs button {
+    padding: 6px 6px;
+  }
+  .selection-bar {
+    flex-wrap: wrap;
+    border-radius: 20px;
+  }
+  .selection-bar span {
+    flex-basis: 100%;
+  }
+  .selection-bar button {
+    flex: 1;
+  }
+}
+.junk-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.images-blocked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}

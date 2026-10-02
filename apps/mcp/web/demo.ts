@@ -113,6 +113,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
           aliases: [{ address: 'support@example.com', fromName: 'Example Support' }],
           total,
           unread,
+          junk: 0,
           syncedAt: new Date().toISOString(),
         },
       ],
@@ -174,6 +175,8 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       uid: 1,
       messageId: id,
       unread: m.unread,
+      junk: false,
+      imagesBlocked: false,
       headers: {
         subject: m.subject,
         from: m.from,

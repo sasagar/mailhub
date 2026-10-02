@@ -26,7 +26,9 @@ export async function inboxOverview(sql: Sql) {
   const accounts = await sql`
     select a.id, a.email, a.label, a.from_name, b.synced_at,
       count(m.id)::int as total,
-      count(m.id) filter (where not ('\\Seen' = any(m.flags)))::int as unread
+      count(m.id) filter (where not ('\\Seen' = any(m.flags)))::int as unread,
+      (select count(*)::int from messages jm join mailboxes jb on jb.id = jm.mailbox_id and jb.role = 'junk'
+        where jm.account_id = a.id) as junk
     from accounts a
     left join mailboxes b on b.account_id = a.id and b.role = 'inbox'
     left join messages m on m.mailbox_id = b.id
@@ -41,11 +43,15 @@ export async function inboxOverview(sql: Sql) {
     aliases: aliases.filter((l) => l.account_id === a.id).map((l) => ({ address: l.address, fromName: l.from_name })),
     total: a.total,
     unread: a.unread,
+    // 迷惑メールフォルダの件数
+    junk: a.junk,
     syncedAt: a.synced_at?.toISOString() ?? null,
   }))
 }
 
 export type ListFilter = {
+  // 受信トレイ（既定）か迷惑メールフォルダか
+  folder?: 'inbox' | 'junk'
   account?: string
   from?: string
   subject?: string
@@ -57,9 +63,9 @@ export type ListFilter = {
 }
 
 export async function listMessages(sql: Sql, f: ListFilter) {
-  // 受信トレイだけを対象にする。条件はすべて AND
+  // 受信トレイ（または迷惑メールフォルダ）だけを対象にする。条件はすべて AND
   const where = sql`
-    b.role = 'inbox' and a.enabled
+    b.role = ${f.folder ?? 'inbox'} and a.enabled
     ${f.account ? sql`and a.email = ${f.account}` : sql``}
     ${f.from ? sql`and (m.from_addr -> 0 ->> 'address') ilike ${'%' + f.from + '%'}` : sql``}
     ${f.subject ? sql`and m.subject ilike ${'%' + f.subject + '%'}` : sql``}
@@ -108,14 +114,22 @@ export async function senderSummary(sql: Sql, opts: { account?: string; limit: n
   }))
 }
 
-// 一括アーカイブを操作キューに積む。実行は同期デーモン（フォルダごとに IMAP の MOVE 1 回）。
-// 受信トレイに無い ID（既にアーカイブ済み・存在しない）は積まずに notFound で返す
-export async function enqueueArchive(sql: Sql, opts: { messageIds: string[]; markSeen: boolean; requestedBy: string }) {
+// 移動の操作。archive と spam は受信トレイから、not_spam は迷惑メールフォルダ（から受信トレイへ）
+export type MoveAction = 'archive' | 'spam' | 'not_spam'
+const sourceRole = (action: MoveAction) => (action === 'not_spam' ? 'junk' : 'inbox')
+
+// 一括アーカイブ（や迷惑メールへの移動）を操作キューに積む。実行は同期デーモン（フォルダごとに IMAP の MOVE 1 回）。
+// 移動元に無い ID（既に移動済み・存在しない）は積まずに notFound で返す
+export async function enqueueArchive(
+  sql: Sql,
+  opts: { messageIds: string[]; markSeen: boolean; requestedBy: string; action?: MoveAction },
+) {
+  const action = opts.action ?? 'archive'
   const ids = [...new Set(opts.messageIds)]
   const rows = await sql`
     select m.id, m.account_id, m.mailbox_id, m.uid, a.email
     from messages m
-    join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
+    join mailboxes b on b.id = m.mailbox_id and b.role = ${sourceRole(action)}
     join accounts a on a.id = m.account_id and a.enabled
     where m.id = any(${bigints(sql, ids)})`
   const found = new Set(rows.map((r) => String(r.id)))
@@ -128,7 +142,7 @@ export async function enqueueArchive(sql: Sql, opts: { messageIds: string[]; mar
       const first = list[0]!
       const [op] = await tx`
         insert into operations (account_id, mailbox_id, kind, uids, params, requested_by)
-        values (${first.account_id}, ${first.mailbox_id}, 'archive', ${bigints(
+        values (${first.account_id}, ${first.mailbox_id}, ${action}, ${bigints(
           tx,
           list.map((r) => r.uid),
         )},
@@ -167,13 +181,13 @@ export async function getOperations(sql: Sql, ids: string[]) {
 // ID をブラウザやエージェントから送らずに済む
 export async function enqueueArchiveBySenders(
   sql: Sql,
-  opts: { addresses: string[]; account?: string; markSeen: boolean; requestedBy: string },
+  opts: { addresses: string[]; account?: string; markSeen: boolean; requestedBy: string; action?: MoveAction },
 ) {
   const addresses = [...new Set(opts.addresses.map((a) => a.toLowerCase()))]
   const rows = await sql`
     select m.id
     from messages m
-    join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
+    join mailboxes b on b.id = m.mailbox_id and b.role = ${sourceRole(opts.action ?? 'archive')}
     join accounts a on a.id = m.account_id and a.enabled
     where lower(m.from_addr -> 0 ->> 'address') in (
       select jsonb_array_elements_text(${sql.json(addresses)})
@@ -184,6 +198,7 @@ export async function enqueueArchiveBySenders(
     messageIds: rows.map((r) => String(r.id)),
     markSeen: opts.markSeen,
     requestedBy: opts.requestedBy,
+    action: opts.action,
   })
 }
 
@@ -240,12 +255,13 @@ type Located = {
   uid: number
   messageId: string | null
   unread: boolean | null
+  junk: boolean
 }
 
 async function locate(sql: Sql, ref: MessageRef): Promise<Located> {
   if ('messageId' in ref) {
     const [r] = await sql`
-      select m.id, m.account_id, a.email, b.path, m.uid, m.flags
+      select m.id, m.account_id, a.email, b.path, b.role, m.uid, m.flags
       from messages m join mailboxes b on b.id = m.mailbox_id join accounts a on a.id = m.account_id
       where m.id = ${ref.messageId} and a.enabled`
     if (!r) throw new UserError('メールが見つかりません（受信トレイから移動した可能性）')
@@ -256,11 +272,23 @@ async function locate(sql: Sql, ref: MessageRef): Promise<Located> {
       uid: Number(r.uid),
       messageId: String(r.id),
       unread: !(r.flags as string[]).includes('\\Seen'),
+      junk: r.role === 'junk',
     }
   }
-  const [a] = await sql`select id from accounts where email = ${ref.account} and enabled`
+  const [a] = await sql`
+    select a.id, b.role from accounts a
+    left join mailboxes b on b.account_id = a.id and b.path = ${ref.mailbox}
+    where a.email = ${ref.account} and a.enabled`
   if (!a) throw new UserError(`アカウント ${ref.account} はありません`)
-  return { accountId: a.id, account: ref.account, mailbox: ref.mailbox, uid: ref.uid, messageId: null, unread: null }
+  return {
+    accountId: a.id,
+    account: ref.account,
+    mailbox: ref.mailbox,
+    uid: ref.uid,
+    messageId: null,
+    unread: null,
+    junk: a.role === 'junk',
+  }
 }
 
 export type MessageBody = {
@@ -269,6 +297,8 @@ export type MessageBody = {
   uid: number
   messageId: string | null
   unread: boolean | null
+  // 迷惑メールフォルダのメール（画面は画像を読み込まない）
+  junk: boolean
   headers: {
     subject: string | null
     from: { name: string | null; address: string | null } | null
@@ -307,7 +337,10 @@ export async function getMessageBody(sql: Sql, ref: MessageRef, requestedBy: str
       if (st?.status === 'failed') throw new UserError(`本文を取得できませんでした: ${st.error}`)
       if (st?.status === 'done') body = await read()
     }
-    if (!body) throw new UserError('本文の取得が 25 秒以内に終わりませんでした。取得は続いているので、少し待ってもう一度開いてください')
+    if (!body)
+      throw new UserError(
+        '本文の取得が 25 秒以内に終わりませんでした。取得は続いているので、少し待ってもう一度開いてください',
+      )
   }
   return {
     account: loc.account,
@@ -315,6 +348,7 @@ export async function getMessageBody(sql: Sql, ref: MessageRef, requestedBy: str
     uid: loc.uid,
     messageId: loc.messageId,
     unread: loc.unread,
+    junk: loc.junk,
     headers: body.headers,
     text: body.text_body ?? '',
     html: body.html_body,

@@ -40,8 +40,13 @@ function frameDocument(html: string, dark: boolean): string {
 const replyRef = (b: MessageBody) =>
   b.messageId ? { id: b.messageId } : { account: b.account, mailbox: b.mailbox, uid: b.uid }
 
+type ArchiveFn = (body: Record<string, unknown>, label: string) => Promise<void>
+
 export function MessageView(props: {
   target: MessageRef
+  canTriage: boolean
+  // 迷惑メールにする・戻す（一覧と同じ操作キュー）
+  archive: ArchiveFn
   onClose: () => void
   onError: (err: unknown) => void
   onMarkedRead: () => void
@@ -52,6 +57,8 @@ export function MessageView(props: {
   const [body, setBody] = useState<MessageBody | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [preferText, setPreferText] = useState(false)
+  // 迷惑メールの画像を読み込むと本人が選んだ
+  const [loadImages, setLoadImages] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
   const dark = useMemo(() => matchMedia('(prefers-color-scheme: dark)').matches, [])
 
@@ -64,6 +71,7 @@ export function MessageView(props: {
             mailbox: props.target.mailbox,
             uid: String(props.target.uid),
           })
+    if (loadImages) q.set('images', '1')
     api<MessageBody>(`/mcp/api/message?${q}`)
       .then((b) => {
         setBody(b)
@@ -82,7 +90,7 @@ export function MessageView(props: {
     // 開いている間は後ろの一覧をスクロールさせない
     document.documentElement.classList.add('sheet-open')
     return () => document.documentElement.classList.remove('sheet-open')
-  }, [props.target])
+  }, [props.target, loadImages])
 
   // スレッドは本文を出してから取りに行く（数秒かかることがあるので、本文の表示を待たせない）
   const [thread, setThread] = useState<ThreadItem[] | null>(null)
@@ -164,6 +172,23 @@ export function MessageView(props: {
         </button>
         {body && (
           <span className="bar-actions">
+            {props.canTriage && body.messageId && (
+              <button
+                className="quiet"
+                onClick={() => {
+                  const subject = body.headers.subject || '（件名なし）'
+                  void props.archive(
+                    body.junk
+                      ? { message_ids: [body.messageId], action: 'not_spam' }
+                      : { message_ids: [body.messageId], action: 'spam', mark_read: true },
+                    `${body.junk ? '受信トレイに戻す' : '迷惑メールへ'}: ${subject}`,
+                  )
+                  props.onClose()
+                }}
+              >
+                {body.junk ? '迷惑メールではない' : '迷惑メール'}
+              </button>
+            )}
             <button className="quiet" onClick={() => props.onReply(replyRef(body), false)}>
               返信
             </button>
@@ -217,6 +242,15 @@ export function MessageView(props: {
                   {useHtml ? 'テキストで表示' : '元の表示に戻す'}
                 </button>
               </div>
+            )}
+
+            {body.imagesBlocked && useHtml && (
+              <p className="images-blocked">
+                迷惑メールなので画像を読み込んでいません
+                <button className="quiet" onClick={() => setLoadImages(true)}>
+                  画像を表示
+                </button>
+              </p>
             )}
 
             {useHtml ? (

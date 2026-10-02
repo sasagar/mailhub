@@ -88,6 +88,10 @@ export function rewriteImages(html: string, proxy: (url: string) => string): str
   return out
 }
 
+// 外部画像を読み込まない形にする（迷惑メール用）。透明な 1px の画像に差し替える
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+export const blockImages = (html: string) => rewriteImages(html, () => BLANK)
+
 // ---- 署名 ----
 
 const encoder = new TextEncoder()

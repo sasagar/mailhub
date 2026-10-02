@@ -22,7 +22,7 @@ import {
   senderSummary,
   updateDraft,
 } from './queries.ts'
-import { proxyImages } from './images.ts'
+import { blockImages, proxyImages } from './images.ts'
 import type { Props, Scope } from './scopes.ts'
 
 export const API_PREFIX = '/mcp/api/'
@@ -57,6 +57,8 @@ const DraftBody = z.object({
     .optional(),
   reply_all: z.boolean().optional(),
 })
+// 移動の種類。迷惑メールにする（spam）・迷惑メールではない（not_spam）も同じ口で受ける
+const MoveAction = z.enum(['archive', 'spam', 'not_spam']).default('archive')
 const ArchiveBody = z.union([
   z.object({ message_ids: z.array(numericId).min(1).max(2000), mark_read: z.boolean().default(false) }),
   z.object({ sender: z.string().min(3), account: z.string().optional(), mark_read: z.boolean().default(false) }),
@@ -87,6 +89,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     need('mail.read')
     return json(
       await listMessages(sql, {
+        folder: q.get('folder') === 'junk' ? 'junk' : 'inbox',
         account: q.get('account') ?? undefined,
         from: q.get('from') ?? undefined,
         subject: q.get('subject') ?? undefined,
@@ -141,15 +144,19 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     }
     const body = await getMessageBody(sql, ref, by)
     // 外部画像は mailhub 経由で読み込ませる（相手のサーバーに閲覧者の IP を渡さない）
+    // 迷惑メールの画像は、求められたとき（images=1）だけ読み込む（開いたことを送り主に知らせない）。
     // 書き換えに失敗しても本文は返す（画像は枠の CSP で止まるので IP は漏れない。画像が出ないだけ）
+    const imagesBlocked = body.junk && q.get('images') !== '1'
     if (body.html) {
       try {
-        body.html = await proxyImages(body.html, url.origin, env.IMAGE_PROXY_KEY)
+        body.html = imagesBlocked
+          ? blockImages(body.html)
+          : await proxyImages(body.html, url.origin, env.IMAGE_PROXY_KEY)
       } catch (err) {
         console.error(`proxyImages: ${(err as Error).message}`)
       }
     }
-    return json(body)
+    return json({ ...body, imagesBlocked })
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}mark-read`) {
     need('mail.triage')
@@ -215,16 +222,31 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}archive`) {
     need('mail.triage')
-    const parsed = ArchiveBody.safeParse(await request.json().catch(() => null))
-    if (!parsed.success) throw new HttpError(400, '本文の形式が正しくありません')
+    const raw = (await request.json().catch(() => null)) as { action?: unknown } | null
+    const parsed = ArchiveBody.safeParse(raw)
+    const action = MoveAction.safeParse(raw?.action)
+    if (!parsed.success || !action.success) throw new HttpError(400, '本文の形式が正しくありません')
     const requestedBy = `web:${props.clientName}`
     const body = parsed.data
     if ('message_ids' in body) {
-      return json(await enqueueArchive(sql, { messageIds: body.message_ids, markSeen: body.mark_read, requestedBy }))
+      return json(
+        await enqueueArchive(sql, {
+          messageIds: body.message_ids,
+          markSeen: body.mark_read,
+          requestedBy,
+          action: action.data,
+        }),
+      )
     }
     const addresses = 'senders' in body ? body.senders : [body.sender]
     return json(
-      await enqueueArchiveBySenders(sql, { addresses, account: body.account, markSeen: body.mark_read, requestedBy }),
+      await enqueueArchiveBySenders(sql, {
+        addresses,
+        account: body.account,
+        markSeen: body.mark_read,
+        requestedBy,
+        action: action.data,
+      }),
     )
   }
   throw new HttpError(404, 'Not Found')

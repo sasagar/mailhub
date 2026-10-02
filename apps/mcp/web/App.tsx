@@ -18,7 +18,7 @@ import { MessageView } from './MessageView.tsx'
 import { useFreshness } from './useFreshness.ts'
 import { usePullToRefresh } from './usePullToRefresh.ts'
 
-type View = 'senders' | 'timeline' | 'search' | 'drafts'
+type View = 'senders' | 'timeline' | 'search' | 'drafts' | 'junk'
 
 export function App() {
   const [phase, setPhase] = useState<'starting' | 'out' | 'in'>('starting')
@@ -125,6 +125,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   const scoped = account ? accounts.filter((a) => a.account === account) : accounts
   const total = scoped.reduce((s, a) => s + a.total, 0)
   const unread = scoped.reduce((s, a) => s + a.unread, 0)
+  const junk = scoped.reduce((s, a) => s + (a.junk ?? 0), 0)
 
   return (
     <div className="app">
@@ -204,6 +205,14 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
             <button role="tab" aria-selected={view === 'drafts'} onClick={() => setView('drafts')}>
               下書き
             </button>
+            <button
+              role="tab"
+              aria-selected={view === 'junk'}
+              aria-label={`迷惑メール ${n(junk)} 通`}
+              onClick={() => setView('junk')}
+            >
+              迷惑メール
+            </button>
           </div>
           {accounts.length > 1 && (
             <select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="アカウント">
@@ -234,8 +243,10 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
           onOpen={openMessage}
         />
       )}
-      {view === 'timeline' && (
+      {(view === 'timeline' || view === 'junk') && (
         <Timeline
+          key={view}
+          folder={view === 'junk' ? 'junk' : 'inbox'}
           account={account}
           canTriage={canTriage}
           archive={archive}
@@ -252,7 +263,10 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
       <Activity jobs={jobs} now={now} onDismiss={dismiss} />
       {opened && (
         <MessageView
+          key={JSON.stringify(opened)}
           target={opened}
+          canTriage={canTriage}
+          archive={archive}
           onClose={() => history.back()}
           onError={guard}
           onMarkedRead={reload}
@@ -453,13 +467,21 @@ function Senders(props: {
       return next
     })
 
-  // 1 件でも複数でも、差出人のアドレスを渡して積む
-  const run = async (targets: Sender[], markRead: boolean) => {
+  // 1 件でも複数でも、差出人のアドレスを渡して積む。spam なら迷惑メールフォルダへ（既読にしてから）
+  const run = async (targets: Sender[], markRead: boolean, spam = false) => {
     const addresses = targets.map((s) => s.address)
-    const label = targets.length === 1 ? senderName(targets[0]!) : `${targets.length} 件の差出人`
+    const who = targets.length === 1 ? senderName(targets[0]!) : `${targets.length} 件の差出人`
     setSelected(new Set())
     setBusyFor(addresses, true)
-    await props.archive({ senders: addresses, account: props.account || undefined, mark_read: markRead }, label)
+    await props.archive(
+      {
+        senders: addresses,
+        account: props.account || undefined,
+        mark_read: spam || markRead,
+        action: spam ? 'spam' : 'archive',
+      },
+      spam ? `迷惑メールへ: ${who}` : who,
+    )
     setBusyFor(addresses, false)
   }
 
@@ -538,6 +560,7 @@ function Senders(props: {
                   canTriage={props.canTriage}
                   busy={busy.has(s.address)}
                   onArchiveKeepUnread={() => void run([s], false)}
+                  onSpam={() => void run([s], true, true)}
                   onError={props.onError}
                   onOpen={props.onOpen}
                 />
@@ -551,6 +574,9 @@ function Senders(props: {
           <span>
             <b>{n(chosen.length)}</b> 件（{n(chosenTotal)} 通）
           </span>
+          <button className="quiet" onClick={() => void run(chosen, false, true)}>
+            迷惑メール
+          </button>
           <button className="quiet" onClick={() => void run(chosen, false)}>
             アーカイブ
           </button>
@@ -569,6 +595,7 @@ function SenderDetail(props: {
   canTriage: boolean
   busy: boolean
   onArchiveKeepUnread: () => void
+  onSpam: () => void
   onError: (err: unknown) => void
   onOpen: (ref: MessageRef) => void
 }) {
@@ -599,9 +626,14 @@ function SenderDetail(props: {
         </ul>
       )}
       {props.canTriage && (
-        <button className="quiet" disabled={props.busy} onClick={props.onArchiveKeepUnread}>
-          未読のままアーカイブ
-        </button>
+        <div className="detail-actions">
+          <button className="quiet" disabled={props.busy} onClick={props.onArchiveKeepUnread}>
+            未読のままアーカイブ
+          </button>
+          <button className="quiet" disabled={props.busy} onClick={props.onSpam}>
+            迷惑メールにする
+          </button>
+        </div>
       )}
     </div>
   )
@@ -645,7 +677,9 @@ function ConfirmButton(props: {
   )
 }
 
+// 新しい順の一覧。folder が junk のときは迷惑メールフォルダを出し、「迷惑メールではない」で受信トレイに戻せる
 function Timeline(props: {
+  folder: 'inbox' | 'junk'
   account: string
   canTriage: boolean
   archive: ArchiveFn
@@ -661,12 +695,12 @@ function Timeline(props: {
 
   const query = useCallback(
     (offset: number) => {
-      const q = new URLSearchParams({ limit: '50', offset: String(offset) })
+      const q = new URLSearchParams({ limit: '50', offset: String(offset), folder: props.folder })
       if (props.account) q.set('account', props.account)
       if (unreadOnly) q.set('unread', '1')
       return api<MessagePage>(`/mcp/api/messages?${q}`)
     },
-    [props.account, unreadOnly],
+    [props.account, props.folder, unreadOnly],
   )
 
   useEffect(() => {
@@ -692,14 +726,16 @@ function Timeline(props: {
       return next
     })
 
-  const run = async (markRead: boolean) => {
+  const run = async (action: 'archive' | 'spam' | 'not_spam', markRead: boolean) => {
     const ids = [...selected]
     // 操作バーと進行状況の欄が重ならないよう、積んだらすぐ選択を外す
     setSelected(new Set())
     setBusy(true)
-    await props.archive({ message_ids: ids, mark_read: markRead }, `選んだ ${ids.length} 通`)
+    const label = { archive: '', spam: '迷惑メールへ: ', not_spam: '受信トレイに戻す: ' }[action]
+    await props.archive({ message_ids: ids, mark_read: markRead, action }, `${label}選んだ ${ids.length} 通`)
     setBusy(false)
   }
+  const junk = props.folder === 'junk'
 
   const allSelected = useMemo(
     () => messages != null && messages.length > 0 && messages.every((m) => selected.has(m.id)),
@@ -725,8 +761,15 @@ function Timeline(props: {
           </button>
         )}
       </div>
+      {junk && (
+        <p className="junk-hint">
+          迷惑メールフォルダのメールです。開いても画像は読み込みません。数分ごとに取り直しています。
+        </p>
+      )}
       {messages.length === 0 ? (
-        <p className="notice">{unreadOnly ? '未読のメールはありません。' : '受信トレイは空です。'}</p>
+        <p className="notice">
+          {unreadOnly ? '未読のメールはありません。' : junk ? '迷惑メールはありません。' : '受信トレイは空です。'}
+        </p>
       ) : (
         <ol className="timeline">
           {messages.map((m) => (
@@ -757,12 +800,23 @@ function Timeline(props: {
           <span>
             <b>{n(selected.size)}</b> 通を選択中
           </span>
-          <button className="quiet" disabled={busy} onClick={() => void run(false)}>
-            アーカイブ
-          </button>
-          <button className="primary" disabled={busy} onClick={() => void run(true)}>
-            {busy ? '処理中' : '既読にしてアーカイブ'}
-          </button>
+          {junk ? (
+            <button className="primary" disabled={busy} onClick={() => void run('not_spam', false)}>
+              {busy ? '処理中' : '迷惑メールではない'}
+            </button>
+          ) : (
+            <>
+              <button className="quiet" disabled={busy} onClick={() => void run('spam', true)}>
+                迷惑メール
+              </button>
+              <button className="quiet" disabled={busy} onClick={() => void run('archive', false)}>
+                アーカイブ
+              </button>
+              <button className="primary" disabled={busy} onClick={() => void run('archive', true)}>
+                {busy ? '処理中' : '既読にしてアーカイブ'}
+              </button>
+            </>
+          )}
         </div>
       )}
     </>

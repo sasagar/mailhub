@@ -1,14 +1,14 @@
 import type { ImapFlow } from 'imapflow'
 import type { Sql } from '@mailhub/db'
 import type { Account } from '../accounts.ts'
-import { archiveTarget, type MailboxRow } from '../imap/mailboxes.ts'
+import { moveTarget, type MailboxRow } from '../imap/mailboxes.ts'
 
 type Log = (msg: string) => void
 
 type Operation = {
   id: string
   mailboxId: number
-  kind: 'archive' | 'mark_seen'
+  kind: 'archive' | 'mark_seen' | 'spam' | 'not_spam'
   uids: number[]
   params: { markSeen?: boolean }
 }
@@ -39,7 +39,9 @@ async function claim(sql: Sql, accountId: number): Promise<Operation | null> {
   }
 }
 
-// 積まれている操作を全部こなす。呼び出し側で IMAP の直列化（他のコマンドと重ねない）を保証すること
+// 積まれている操作を全部こなす。呼び出し側で IMAP の直列化（他のコマンドと重ねない）を保証すること。
+// 移動元のフォルダを選択し直すことがある（迷惑メールではない: 迷惑メールフォルダから動かす）ので、
+// 終わったら呼び出し側で受信トレイを選択し直す
 export async function runQueuedOperations(
   sql: Sql,
   client: ImapFlow,
@@ -67,9 +69,7 @@ async function execute(sql: Sql, client: ImapFlow, account: Account, mailboxes: 
   const source = mailboxes.find((m) => m.id === op.mailboxId)
   if (!source) throw new Error(`mailbox ${op.mailboxId} はこのアカウントのものではありません`)
   if (op.uids.length === 0) return { moved: 0 }
-  if (client.mailbox === false || client.mailbox.path !== source.path) {
-    throw new Error(`${source.path} は選択中のフォルダではありません`)
-  }
+  if (client.mailbox === false || client.mailbox.path !== source.path) await client.mailboxOpen(source.path)
 
   if (op.kind === 'mark_seen') {
     await client.messageFlagsAdd(op.uids, ['\\Seen'], { uid: true })
@@ -80,9 +80,12 @@ async function execute(sql: Sql, client: ImapFlow, account: Account, mailboxes: 
     return { marked: op.uids.length }
   }
 
-  const target = archiveTarget(mailboxes, account.provider)
-  if (!target) throw new Error('アーカイブ先のフォルダが見つかりません')
-  if (target.id === source.id) throw new Error('アーカイブ先と移動元が同じです')
+  const target = moveTarget(op.kind, mailboxes, account.provider)
+  if (!target)
+    throw new Error(
+      op.kind === 'archive' ? 'アーカイブ先のフォルダが見つかりません' : '移動先のフォルダが見つかりません',
+    )
+  if (target.id === source.id) throw new Error('移動先と移動元が同じです')
 
   // 既読は移動の前に付ける。移動すると移動先で UID が振り直され、元の UID では指定できなくなる
   if (op.params.markSeen) await client.messageFlagsAdd(op.uids, ['\\Seen'], { uid: true })

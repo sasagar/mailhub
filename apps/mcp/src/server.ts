@@ -29,7 +29,7 @@ const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSO
 // リクエストごとに作る（createMcpHandler はステートレス。サーバーを使い回さない）。
 // 権限の無いツールは一覧にも出さない。念のため実行時にも確かめる
 function createServer(sql: Sql, props: Props) {
-  const server = new McpServer({ name: 'mailhub', version: '0.2.0' })
+  const server = new McpServer({ name: 'mailhub', version: '0.3.0' })
   const can = (scope: Scope) => props.scopes.includes(scope)
   const requireScope = (scope: Scope) => {
     if (!can(scope)) throw new Error(`このトークンには ${scope}（${SCOPES[scope].label}）の権限がありません`)
@@ -40,7 +40,7 @@ function createServer(sql: Sql, props: Props) {
       'inbox_overview',
       {
         description:
-          '全アカウントの受信トレイの件数・未読数・最終同期時刻と、送信に使えるエイリアス（aliases）を返す。まずこれで全体を把握してから他のツールを使う。',
+          '全アカウントの受信トレイの件数・未読数・迷惑メールフォルダの件数（junk）・最終同期時刻と、送信に使えるエイリアス（aliases）を返す。まずこれで全体を把握してから他のツールを使う。',
         annotations: { readOnlyHint: true },
       },
       async () => {
@@ -53,8 +53,10 @@ function createServer(sql: Sql, props: Props) {
       'list_messages',
       {
         description:
-          '受信トレイのメールを新しい順に一覧する（本文なし）。条件はすべて AND。from と subject は部分一致。total で全件数が分かるので、多ければ offset でページングする。返す id は archive_messages に渡せる。',
+          '受信トレイのメールを新しい順に一覧する（本文なし）。条件はすべて AND。from と subject は部分一致。total で全件数が分かるので、多ければ offset でページングする。返す id は archive_messages に渡せる。' +
+          'folder に junk を指定すると迷惑メールフォルダを一覧する（その id は not_spam に渡せる）。',
         inputSchema: {
+          folder: z.enum(['inbox', 'junk']).default('inbox').describe('inbox: 受信トレイ、junk: 迷惑メールフォルダ'),
           account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
           from: z.string().optional().describe('差出人アドレスの部分一致'),
           subject: z.string().optional().describe('件名の部分一致'),
@@ -70,6 +72,7 @@ function createServer(sql: Sql, props: Props) {
         requireScope('mail.read')
         return json(
           await listMessages(sql, {
+            folder: a.folder,
             account: a.account,
             from: a.from,
             subject: a.subject,
@@ -194,7 +197,8 @@ function createServer(sql: Sql, props: Props) {
     server.registerTool(
       'get_operations',
       {
-        description: 'archive_messages で積んだ操作の状況（queued / running / done / failed）と結果を返す。',
+        description:
+          'archive_messages・mark_spam・not_spam・mark_read で積んだ操作の状況（queued / running / done / failed）と結果を返す。',
         inputSchema: { operation_ids: z.array(z.string().regex(/^\d+$/)).min(1).max(100) },
         annotations: { readOnlyHint: true },
       },
@@ -242,6 +246,70 @@ function createServer(sql: Sql, props: Props) {
       async (a) => {
         requireScope('mail.triage')
         return json(await enqueueMarkSeen(sql, { messageIds: a.message_ids, requestedBy: `mcp:${props.clientName}` }))
+      },
+    )
+
+    server.registerTool(
+      'mark_spam',
+      {
+        description:
+          '受信トレイのメールを迷惑メールフォルダに移す（削除はしない）。Gmail は迷惑メールとして学習し、似たメールを次から振り分けやすくなる。' +
+          'message_ids（list_messages の id）か senders（差出人のアドレス。その差出人の受信トレイのメールすべて）のどちらかを指定する。' +
+          '迷惑メールかどうか確信が持てないもの（取引先・知人・登録したサービスなど）は移さず、本人に確認する。' +
+          'archive_messages と同じく操作として積まれ、get_operations で完了を確認できる。',
+        inputSchema: {
+          message_ids: z.array(z.string().regex(/^\d+$/)).min(1).max(2000).optional(),
+          senders: z.array(z.string().min(3)).min(1).max(200).optional(),
+          account: z.string().optional().describe('senders のとき、このアカウントに絞る'),
+          mark_read: z.boolean().default(true).describe('移す前に既読にする'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        const requestedBy = `mcp:${props.clientName}`
+        if (a.message_ids) {
+          return json(
+            await enqueueArchive(sql, {
+              messageIds: a.message_ids,
+              markSeen: a.mark_read,
+              requestedBy,
+              action: 'spam',
+            }),
+          )
+        }
+        if (!a.senders) throw new Error('message_ids か senders を指定してください')
+        return json(
+          await enqueueArchiveBySenders(sql, {
+            addresses: a.senders,
+            account: a.account,
+            markSeen: a.mark_read,
+            requestedBy,
+            action: 'spam',
+          }),
+        )
+      },
+    )
+
+    server.registerTool(
+      'not_spam',
+      {
+        description:
+          '迷惑メールフォルダのメールを受信トレイに戻す（迷惑メールではない）。Gmail はこれも学習する。' +
+          'id は list_messages（folder: junk）の id。操作として積まれ、get_operations で完了を確認できる。',
+        inputSchema: { message_ids: z.array(z.string().regex(/^\d+$/)).min(1).max(2000) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async (a) => {
+        requireScope('mail.triage')
+        return json(
+          await enqueueArchive(sql, {
+            messageIds: a.message_ids,
+            markSeen: false,
+            requestedBy: `mcp:${props.clientName}`,
+            action: 'not_spam',
+          }),
+        )
       },
     )
 

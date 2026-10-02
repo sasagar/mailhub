@@ -44,3 +44,22 @@ export function archiveTarget(mailboxes: MailboxRow[], provider: Provider): Mail
   if (provider === 'gmail') return all
   return mailboxes.find((m) => m.role === 'archive') ?? all
 }
+
+// 迷惑メールフォルダ。\Junk の印が無いサーバーもあるので、よくある名前でも探す
+const JUNK_NAMES = /^(?:.*[/.])?(junk|junk e-?mail|spam|bulk mail|迷惑メール)$/i
+export function junkFolder(mailboxes: MailboxRow[]): MailboxRow | undefined {
+  return mailboxes.find((m) => m.role === 'junk') ?? mailboxes.find((m) => JUNK_NAMES.test(m.path))
+}
+
+export function inboxFolder(mailboxes: MailboxRow[]): MailboxRow | undefined {
+  return mailboxes.find((m) => m.role === 'inbox') ?? mailboxes.find((m) => m.path.toUpperCase() === 'INBOX')
+}
+
+export type MoveKind = 'archive' | 'spam' | 'not_spam'
+
+// 操作ごとの移動先
+export function moveTarget(kind: MoveKind, mailboxes: MailboxRow[], provider: Provider): MailboxRow | undefined {
+  if (kind === 'spam') return junkFolder(mailboxes)
+  if (kind === 'not_spam') return inboxFolder(mailboxes)
+  return archiveTarget(mailboxes, provider)
+}
