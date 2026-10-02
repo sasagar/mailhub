@@ -7,13 +7,15 @@ const MAX_BYTES = 10 * 1024 * 1024
 
 // ---- HTML の書き換え（純粋関数） ----
 
+// 範囲外の文字参照（&#99999999; など）は fromCodePoint が例外を投げるので、そのまま残す
+const codePoint = (whole: string, n: number) => (n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole)
 const decodeEntities = (s: string) =>
   s
     .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#0*39;|&apos;/gi, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (whole, h: string) => codePoint(whole, parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (whole, d: string) => codePoint(whole, Number(d)))
 
 // 書き換えの対象になる外部の URL か。プロトコル相対（//host/…）は https として扱う
 export function externalUrl(raw: string): string | null {

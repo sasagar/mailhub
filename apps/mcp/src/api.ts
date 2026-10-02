@@ -10,6 +10,7 @@ import {
   enqueueMarkSeen,
   getAttachment,
   getMessageBody,
+  UserError,
   getThread,
   getOperations,
   getDraft,
@@ -140,7 +141,14 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     }
     const body = await getMessageBody(sql, ref, by)
     // 外部画像は mailhub 経由で読み込ませる（相手のサーバーに閲覧者の IP を渡さない）
-    if (body.html) body.html = await proxyImages(body.html, url.origin, env.IMAGE_PROXY_KEY)
+    // 書き換えに失敗しても本文は返す（画像は枠の CSP で止まるので IP は漏れない。画像が出ないだけ）
+    if (body.html) {
+      try {
+        body.html = await proxyImages(body.html, url.origin, env.IMAGE_PROXY_KEY)
+      } catch (err) {
+        console.error(`proxyImages: ${(err as Error).message}`)
+      }
+    }
     return json(body)
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}mark-read`) {
@@ -233,6 +241,7 @@ export const restApi = {
       return await route(request, env, sql, props as Props)
     } catch (err) {
       if (err instanceof HttpError) return json({ error: err.message }, err.status)
+      if (err instanceof UserError) return json({ error: err.message }, 422)
       console.error(`${new URL(request.url).pathname}: ${(err as Error).message}`)
       return json({ error: '内部エラーが起きました' }, 500)
     } finally {

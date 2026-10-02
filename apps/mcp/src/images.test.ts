@@ -55,6 +55,8 @@ describe('externalUrl', () => {
     expect(externalUrl('//a.example/x')).toBe('https://a.example/x')
     expect(externalUrl('javascript:alert(1)')).toBeNull()
     expect(externalUrl('cid:x')).toBeNull()
+    // 範囲外の文字参照で例外を投げない
+    expect(externalUrl('https://a.example/x&#99999999;')).toBe('https://a.example/x&#99999999;')
   })
 })
 

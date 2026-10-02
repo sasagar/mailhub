@@ -1,5 +1,9 @@
 import type { Sql } from '@mailhub/db'
 
+// 利用者に見せてよい理由付きの失敗（見つからない・取得に失敗した・時間切れなど）。
+// 画面の API はこれを「内部エラー」にまとめず、メッセージをそのまま返す
+export class UserError extends Error {}
+
 // Workers では Hyperdrive の推奨どおり fetch_types: false にしている。その状態だと postgres.js は JS の配列を
 // Postgres の配列に変換できず "1,2,3" という文字列で送ってしまうので、JSON で渡して SQL 側で bigint[] に組み立てる
 const bigints = (
@@ -209,7 +213,7 @@ export async function searchMail(
   let accountId: number | null = null
   if (opts.account) {
     const [a] = await sql`select id from accounts where email = ${opts.account} and enabled`
-    if (!a) throw new Error(`アカウント ${opts.account} はありません`)
+    if (!a) throw new UserError(`アカウント ${opts.account} はありません`)
     accountId = a.id
   }
   const [req] = await sql`
@@ -221,9 +225,9 @@ export async function searchMail(
     await new Promise((r) => setTimeout(r, 400))
     const [row] = await sql`select status, results, error from search_requests where id = ${req!.id}`
     if (row?.status === 'done') return row.results as SearchResult
-    if (row?.status === 'failed') throw new Error(`検索に失敗しました: ${row.error}`)
+    if (row?.status === 'failed') throw new UserError(`検索に失敗しました: ${row.error}`)
   }
-  throw new Error('検索が 25 秒以内に終わりませんでした。条件を絞ってもう一度試してください')
+  throw new UserError('検索が 25 秒以内に終わりませんでした。条件を絞ってもう一度試してください')
 }
 
 // 本文を読むときのメールの指定。受信トレイのものは mailhub の ID、それ以外（検索結果）は所在で指定する
@@ -244,7 +248,7 @@ async function locate(sql: Sql, ref: MessageRef): Promise<Located> {
       select m.id, m.account_id, a.email, b.path, m.uid, m.flags
       from messages m join mailboxes b on b.id = m.mailbox_id join accounts a on a.id = m.account_id
       where m.id = ${ref.messageId} and a.enabled`
-    if (!r) throw new Error('メールが見つかりません（受信トレイから移動した可能性）')
+    if (!r) throw new UserError('メールが見つかりません（受信トレイから移動した可能性）')
     return {
       accountId: r.account_id,
       account: r.email,
@@ -255,7 +259,7 @@ async function locate(sql: Sql, ref: MessageRef): Promise<Located> {
     }
   }
   const [a] = await sql`select id from accounts where email = ${ref.account} and enabled`
-  if (!a) throw new Error(`アカウント ${ref.account} はありません`)
+  if (!a) throw new UserError(`アカウント ${ref.account} はありません`)
   return { accountId: a.id, account: ref.account, mailbox: ref.mailbox, uid: ref.uid, messageId: null, unread: null }
 }
 
@@ -300,10 +304,10 @@ export async function getMessageBody(sql: Sql, ref: MessageRef, requestedBy: str
     while (!body && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 300))
       const [st] = await sql`select status, error from requests where id = ${req!.id}`
-      if (st?.status === 'failed') throw new Error(`本文を取得できませんでした: ${st.error}`)
+      if (st?.status === 'failed') throw new UserError(`本文を取得できませんでした: ${st.error}`)
       if (st?.status === 'done') body = await read()
     }
-    if (!body) throw new Error('本文の取得が 25 秒以内に終わりませんでした')
+    if (!body) throw new UserError('本文の取得が 25 秒以内に終わりませんでした。取得は続いているので、少し待ってもう一度開いてください')
   }
   return {
     account: loc.account,
@@ -371,7 +375,7 @@ export function parseAddresses(input: string | string[] | undefined): Addr[] {
   return parts.map((p) => {
     const m = /^(.*?)\s*<([^>]+)>$/.exec(p)
     const address = (m ? m[2]! : p).trim()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error(`メールアドレスの形式が正しくありません: ${p}`)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new UserError(`メールアドレスの形式が正しくありません: ${p}`)
     const name = m?.[1]?.replace(/^"|"$/g, '').trim()
     return { name: name || null, address }
   })
@@ -422,8 +426,8 @@ async function accountIdFor(sql: Sql, email: string | undefined): Promise<number
   const rows = email
     ? await sql`select id from accounts where email = ${email} and enabled`
     : await sql`select id from accounts where enabled order by id`
-  if (rows.length === 0) throw new Error(email ? `アカウント ${email} はありません` : 'アカウントがありません')
-  if (!email && rows.length > 1) throw new Error('アカウントが複数あるので account を指定してください')
+  if (rows.length === 0) throw new UserError(email ? `アカウント ${email} はありません` : 'アカウントがありません')
+  if (!email && rows.length > 1) throw new UserError('アカウントが複数あるので account を指定してください')
   return rows[0]!.id
 }
 
@@ -435,7 +439,7 @@ async function resolveIdentity(sql: Sql, address: string): Promise<{ accountId: 
   const [l] = await sql`
     select l.account_id from aliases l join accounts a on a.id = l.account_id where l.address = ${addr} and a.enabled`
   if (l) return { accountId: l.account_id, fromAddress: addr }
-  throw new Error(`${address} は登録されたアカウントでもエイリアスでもありません`)
+  throw new UserError(`${address} は登録されたアカウントでもエイリアスでもありません`)
 }
 
 const quote = (text: string) =>
@@ -483,7 +487,7 @@ export async function createDraft(
       !!x.address && (x.address.toLowerCase() === myEmail || myAliases.has(x.address.toLowerCase()))
     if (opts.from) {
       const id = await resolveIdentity(sql, opts.from)
-      if (id.accountId !== accountId) throw new Error(`${opts.from} は ${orig.account} の差出人として使えません`)
+      if (id.accountId !== accountId) throw new UserError(`${opts.from} は ${orig.account} の差出人として使えません`)
       fromAddress = id.fromAddress
     } else {
       // 元のメールがエイリアス宛てなら、そのエイリアスから返す
@@ -531,7 +535,7 @@ export async function createDraft(
 export async function getDraft(sql: Sql, id: string): Promise<Draft> {
   const [r] =
     await sql`select ${draftColumns(sql)} from drafts d join accounts a on a.id = d.account_id where d.id = ${id}`
-  if (!r) throw new Error('下書きが見つかりません')
+  if (!r) throw new UserError('下書きが見つかりません')
   return toDraft(r)
 }
 
@@ -558,10 +562,10 @@ export async function updateDraft(
   const set: Record<string, unknown> = { updated_at: new Date() }
   if (patch.from !== undefined) {
     const [d] = await sql`select account_id from drafts where id = ${id}`
-    if (!d) throw new Error('下書きが見つかりません')
+    if (!d) throw new UserError('下書きが見つかりません')
     const identity = await resolveIdentity(sql, patch.from)
     if (identity.accountId !== d.account_id)
-      throw new Error(`${patch.from} はこの下書きのアカウントの差出人として使えません`)
+      throw new UserError(`${patch.from} はこの下書きのアカウントの差出人として使えません`)
     set.from_address = identity.fromAddress
   }
   if (patch.to !== undefined) set.to_addrs = sql.json(parseAddresses(patch.to))
@@ -570,19 +574,19 @@ export async function updateDraft(
   if (patch.subject !== undefined) set.subject = patch.subject
   if (patch.body !== undefined) set.body_text = patch.body
   const rows = await sql`update drafts set ${sql(set)} where id = ${id} and status in ('draft', 'failed') returning id`
-  if (rows.length === 0) throw new Error('編集できる下書きがありません（送信中か送信済み）')
+  if (rows.length === 0) throw new UserError('編集できる下書きがありません（送信中か送信済み）')
   return getDraft(sql, id)
 }
 
 export async function deleteDraft(sql: Sql, id: string): Promise<void> {
   const rows = await sql`delete from drafts where id = ${id} and status in ('draft', 'failed') returning id`
-  if (rows.length === 0) throw new Error('消せる下書きがありません（送信中か送信済み）')
+  if (rows.length === 0) throw new UserError('消せる下書きがありません（送信中か送信済み）')
 }
 
 // 送信を同期デーモンに頼み、結果を待つ（mail.send の権限は Web 画面だけ）
 export async function sendDraftNow(sql: Sql, id: string, requestedBy: string): Promise<Draft> {
   const draft = await getDraft(sql, id)
-  if (draft.status !== 'draft' && draft.status !== 'failed') throw new Error('送れる状態の下書きではありません')
+  if (draft.status !== 'draft' && draft.status !== 'failed') throw new UserError('送れる状態の下書きではありません')
   const [a] = await sql`select account_id from drafts where id = ${id}`
   const [req] = await sql`
     insert into requests (kind, account_id, params, requested_by)
@@ -592,10 +596,10 @@ export async function sendDraftNow(sql: Sql, id: string, requestedBy: string): P
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 400))
     const [st] = await sql`select status, error from requests where id = ${req!.id}`
-    if (st?.status === 'failed') throw new Error(`送信できませんでした: ${st.error}`)
+    if (st?.status === 'failed') throw new UserError(`送信できませんでした: ${st.error}`)
     if (st?.status === 'done') return getDraft(sql, id)
   }
-  throw new Error('送信の結果が 25 秒以内に返りませんでした。下書きの状態を確かめてください')
+  throw new UserError('送信の結果が 25 秒以内に返りませんでした。下書きの状態を確かめてください')
 }
 
 // ---- 添付ファイルとスレッド ----
@@ -618,10 +622,10 @@ async function runDaemonRequest(
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 300))
     const [st] = await sql`select status, error, result from requests where id = ${req!.id}`
-    if (st?.status === 'failed') throw new Error(st.error as string)
+    if (st?.status === 'failed') throw new UserError(st.error as string)
     if (st?.status === 'done') return st.result
   }
-  throw new Error('25 秒以内に終わりませんでした。もう一度試してください')
+  throw new UserError('25 秒以内に終わりませんでした。もう一度試してください')
 }
 
 export type Attachment = { filename: string; mimeType: string; content: Uint8Array }
@@ -650,10 +654,10 @@ export async function getAttachment(
         requestedBy,
       })
     } catch (err) {
-      throw new Error(`添付ファイルを取得できませんでした: ${(err as Error).message}`)
+      throw new UserError(`添付ファイルを取得できませんでした: ${(err as Error).message}`)
     }
     blob = await read()
-    if (!blob) throw new Error('添付ファイルを取得できませんでした')
+    if (!blob) throw new UserError('添付ファイルを取得できませんでした')
   }
   return { filename: blob.filename, mimeType: blob.mime_type, content: new Uint8Array(blob.content) }
 }
@@ -682,6 +686,6 @@ export async function getThread(sql: Sql, ref: MessageRef, requestedBy: string):
       requestedBy,
     })) as { items: ThreadItem[] }
   } catch (err) {
-    throw new Error(`スレッドを取得できませんでした: ${(err as Error).message}`)
+    throw new UserError(`スレッドを取得できませんでした: ${(err as Error).message}`)
   }
 }
