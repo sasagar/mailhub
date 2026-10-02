@@ -17,15 +17,12 @@ const fmtAddrs = (list: Addr[]) => list.map((a) => (a.name ? `${a.name} <${a.add
 const fmtSize = (bytes: number) =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 
-// HTML メールを隔離した枠で見せるための文書。スクリプトは動かさず（sandbox に allow-scripts を付けない）、
-// 外部画像は既定で読み込まない（追跡に使われやすい）。リンクは別のタブで開く
-function frameDocument(html: string, showImages: boolean, dark: boolean): string {
-  const csp = [
-    "default-src 'none'",
-    "style-src 'unsafe-inline'",
-    `img-src data:${showImages ? ' https: http:' : ''}`,
-    "font-src 'none'",
-  ].join('; ')
+// HTML メールを隔離した枠で見せるための文書。スクリプトは動かさない（sandbox に allow-scripts を付けない）。
+// 外部画像は常に読み込む（2026-10-02 ユーザー判断。Spark と同じ）。リンクは別のタブで開く
+function frameDocument(html: string, dark: boolean): string {
+  const csp = ["default-src 'none'", "style-src 'unsafe-inline'", 'img-src data: https: http:', "font-src 'none'"].join(
+    '; ',
+  )
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <base target="_blank">
@@ -54,7 +51,6 @@ export function MessageView(props: {
 }) {
   const [body, setBody] = useState<MessageBody | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showImages, setShowImages] = useState(false)
   const [preferText, setPreferText] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
   const dark = useMemo(() => matchMedia('(prefers-color-scheme: dark)').matches, [])
@@ -131,7 +127,6 @@ export function MessageView(props: {
     }
   }
 
-  const hasRemoteImages = body?.html ? /<img[^>]+src=["']?https?:/i.test(body.html) : false
   const useHtml = body?.html != null && !preferText
 
   // 枠の高さを中身に合わせる（スクリプトは動かさないが、同じオリジン扱いにして外から測る）
@@ -218,11 +213,6 @@ export function MessageView(props: {
 
             {body.html != null && (
               <div className="message-tools">
-                {useHtml && hasRemoteImages && !showImages && (
-                  <button className="quiet" onClick={() => setShowImages(true)}>
-                    画像を表示
-                  </button>
-                )}
                 <button className="quiet" onClick={() => setPreferText((v) => !v)}>
                   {useHtml ? 'テキストで表示' : '元の表示に戻す'}
                 </button>
@@ -235,7 +225,7 @@ export function MessageView(props: {
                 className="message-frame"
                 title="本文"
                 sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                srcDoc={frameDocument(body.html!, showImages, dark)}
+                srcDoc={frameDocument(body.html!, dark)}
                 onLoad={() => {
                   fit()
                   watch()
