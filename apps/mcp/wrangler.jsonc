@@ -23,6 +23,7 @@
       "/register",
       "/callback",
       "/.well-known/*",
+      "/svc/*",
       "/img/*",
       "/google86918974a41ea5c2.html",
     ],
@@ -53,6 +54,10 @@
   "vars": {
     // この MCP サーバーの正式な URL（トークンの宛先）。ローカルは .dev.vars で上書きする
     "MCP_RESOURCE": "https://mailhub.bktsk.com/mcp",
+    // /svc/mcp（常駐エージェント用）を守る Access の self-hosted アプリ（infra PR #66。Service Token「mydot-pod」だけを通す）。
+    // Worker は Access の JWT をこのチームの公開鍵と aud で検証する。どちらかが空なら入口を閉じる
+    "SVC_ACCESS_TEAM_DOMAIN": "sasapiyo.cloudflareaccess.com",
+    "SVC_ACCESS_AUD": "4a1f61a03cf18bc2e30691a69bb7736c5abf37a4b06650234b9769a991e16f25",
   },
   // 次は wrangler secret put で入れる（ローカルは .dev.vars）。
   // ALLOWED_EMAILS: Access のポリシーに加えて Worker 側でも許可するアドレス（カンマ区切り）。空なら誰も通さない

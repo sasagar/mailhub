@@ -23,6 +23,7 @@ import {
   updateDraft,
 } from './queries.ts'
 import { SCOPES, type Props, type Scope } from './scopes.ts'
+import { authorizeService, SVC_ROUTE } from './svc.ts'
 
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 1) }] })
 
@@ -452,13 +453,9 @@ function createServer(sql: Sql, props: Props) {
   return server
 }
 
-// OAuthProvider がトークンを確かめた後に呼ばれる。ctx.props は同意時に焼き込んだ Props
-const mcpApi = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    const props = ctx.props as Partial<Props> | undefined
-    if (!props?.email || !Array.isArray(props.scopes) || !props.clientName) {
-      return new Response('トークンに権限情報がありません', { status: 403 })
-    }
+// MCP を 1 リクエスト分処理する。/mcp（OAuth）と /svc/mcp（Access の Service Token）で共通
+async function serveMcp(request: Request, env: Env, ctx: ExecutionContext, props: Props, route: string) {
+  {
     // Hyperdrive がプールを持つので、Worker 側はリクエストごとに小さく作って閉じる。
     // MCP の応答は本文が後から流れる（ツールの実行前にレスポンスが返る）ので、閉じるのは本文を流し終えてから。
     // 先に閉じると、実行中のツールの 2 本目以降のクエリが CONNECTION_ENDED で落ちる
@@ -466,7 +463,7 @@ const mcpApi = {
     const close = () => sql.end({ timeout: 5 })
     let response: Response
     try {
-      response = await createMcpHandler(() => createServer(sql, props as Props))(request, env, ctx)
+      response = await createMcpHandler(() => createServer(sql, props), { route })(request, env, ctx)
     } catch (err) {
       ctx.waitUntil(close())
       throw err
@@ -478,10 +475,21 @@ const mcpApi = {
     const { readable, writable } = new TransformStream()
     ctx.waitUntil(response.body.pipeTo(writable).finally(close))
     return new Response(readable, response)
+  }
+}
+
+// OAuthProvider がトークンを確かめた後に呼ばれる。ctx.props は同意時に焼き込んだ Props
+const mcpApi = {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const props = ctx.props as Partial<Props> | undefined
+    if (!props?.email || !Array.isArray(props.scopes) || !props.clientName) {
+      return new Response('トークンに権限情報がありません', { status: 403 })
+    }
+    return serveMcp(request, env, ctx, props as Props, '/mcp')
   },
 }
 
-export default new OAuthProvider({
+const oauth = new OAuthProvider({
   // MCP（エージェント）と Web 画面の API（/mcp/api/*）は同じトークンで守る。
   // トークンの宛先（resource）は /mcp の 1 つだけにし、保護するパスはすべてその配下に置く。
   // MCP クライアントは宛先として MCP サーバーの URL を送ってくるので、宛先を変えると繋がらなくなる
@@ -500,3 +508,16 @@ export default new OAuthProvider({
   // 発行するトークンはこの URL 向けに縛られる。本番とローカルで違うので vars から読む
   resourceMetadata: { resource: env.MCP_RESOURCE, resource_name: 'mailhub' },
 })
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // 常駐エージェント向け（Access の Service Token で守る）。OAuthProvider の外で、Access の JWT を検証して通す
+    if (new URL(request.url).pathname === SVC_ROUTE) {
+      const props = await authorizeService(request, env)
+      if (props instanceof Response) return props
+      return serveMcp(request, env, ctx, props, SVC_ROUTE)
+    }
+    // OAuthProvider は env に OAUTH_PROVIDER を足して defaultHandler に渡す。受け取る型はそれを含むので合わせる
+    return oauth.fetch(request, env as Parameters<typeof oauth.fetch>[1], ctx)
+  },
+}
