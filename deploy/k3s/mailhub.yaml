@@ -123,6 +123,16 @@ spec:
               value: /run/secrets/mailhub/GOOGLE_CLIENT_ID
             - name: GOOGLE_CLIENT_SECRET_FILE
               value: /run/secrets/mailhub/GOOGLE_CLIENT_SECRET
+            # 差出人がこのドメインのメールは agentic-inbox（Cloudflare Email Service）から送る。
+            # Service Token は POST /api/v1/send だけを通す Access アプリ用。Secret が無ければ今までどおり SMTP で送る
+            - name: AGENTIC_INBOX_URL
+              value: https://agentic-inbox.love-rox.cc
+            - name: AGENTIC_INBOX_DOMAINS
+              value: love-rox.cc,kizami.dev,bktsk.app
+            - name: AGENTIC_INBOX_CLIENT_ID_FILE
+              value: /run/secrets/agentic-inbox/AGENTIC_INBOX_CLIENT_ID
+            - name: AGENTIC_INBOX_CLIENT_SECRET_FILE
+              value: /run/secrets/agentic-inbox/AGENTIC_INBOX_CLIENT_SECRET
           resources:
             requests:
               memory: 128Mi
@@ -146,6 +156,9 @@ spec:
             - name: secret
               mountPath: /run/secrets/mailhub
               readOnly: true
+            - name: agentic-inbox-secret
+              mountPath: /run/secrets/agentic-inbox
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
@@ -163,6 +176,12 @@ spec:
                 path: GOOGLE_CLIENT_ID
               - key: GOOGLE_CLIENT_SECRET
                 path: GOOGLE_CLIENT_SECRET
+        # agentic-inbox の送信口用の Service Token（infra が作る。無くても Pod は起動する）
+        - name: agentic-inbox-secret
+          secret:
+            secretName: mailhub-agentic-inbox
+            defaultMode: 0440
+            optional: true
         # init コンテナ（マイグレーション）に渡すもの
         - name: owner-secret
           secret:
