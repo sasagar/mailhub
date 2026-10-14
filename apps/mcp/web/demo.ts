@@ -56,14 +56,24 @@ let senders: Sender[] = [
   })),
 ]
 const OTHER = 6200
+// 複数のアカウントを混ぜた一覧を確かめられるよう、差出人ごとにアカウントを割り振る
+const ACCOUNTS = [
+  { account: 'me@example.com', label: 'Gmail' },
+  { account: 'work@example.co.jp', label: 'Kent&Co.' },
+  { account: 'taro@icloud.example', label: 'iCloud' },
+  { account: 'yoshida@example.com', label: 'Gmail（吉田健徒）' },
+]
+// アーカイブしたメール（見本の一覧から外す）
+const gone = new Set<string>()
 
-const messagesOf = (from?: string): Message[] =>
+const messagesOf = (from?: string): Message[] => allMessages(from).filter((m) => !gone.has(m.id))
+const allMessages = (from?: string): Message[] =>
   senders
     .filter((s) => !from || s.address === from)
     .flatMap((s, si) =>
       Array.from({ length: Math.min(s.total, from ? 12 : 3) }, (_, k) => ({
         id: `${si * 1000 + k}`,
-        account: 'me@example.com',
+        account: ACCOUNTS[si % ACCOUNTS.length]!.account,
         from: { name: s.name, address: s.address },
         subject: SUBJECTS[(si + k) % SUBJECTS.length]!,
         receivedAt: new Date(Date.now() - (si * 3 + k) * 3_600_000).toISOString(),
@@ -112,18 +122,16 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
   if (tail === 'overview') {
     const o: Overview = {
       me: { email: 'me@example.com', scopes: ['mail.read', 'mail.triage', 'mail.send'] },
-      accounts: [
-        {
-          account: 'me@example.com',
-          label: 'わたし',
-          fromName: 'Example Taro',
-          aliases: [{ address: 'support@example.com', fromName: 'Example Support' }],
-          total,
-          unread,
-          junk: 0,
-          syncedAt: new Date().toISOString(),
-        },
-      ],
+      accounts: ACCOUNTS.map((a, i) => ({
+        account: a.account,
+        label: a.label,
+        fromName: 'Example Taro',
+        aliases: i === 0 ? [{ address: 'support@example.com', fromName: 'Example Support' }] : [],
+        total: Math.round(total / (i + 1.5)),
+        unread: Math.round(unread / (i + 2)),
+        junk: i === 0 ? 12 : 0,
+        syncedAt: new Date().toISOString(),
+      })),
     }
     return o as T
   }
@@ -142,6 +150,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       message_ids?: string[]
     }
     const targets = body.senders ?? (body.sender ? [body.sender] : [])
+    for (const id of body.message_ids ?? []) gone.add(id)
     const count = targets.length
       ? senders.filter((s) => targets.includes(s.address)).reduce((sum, s) => sum + s.total, 0)
       : (body.message_ids?.length ?? 0)
@@ -175,9 +184,9 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
   if (tail === 'message') {
     await new Promise((r) => setTimeout(r, 600))
     const id = url.searchParams.get('id')
-    const m = messagesOf().find((x) => x.id === id) ?? messagesOf()[0]!
+    const m = allMessages().find((x) => x.id === id) ?? allMessages()[0]!
     const body: MessageBody = {
-      account: 'me@example.com',
+      account: m.account,
       mailbox: 'INBOX',
       uid: 1,
       messageId: id,
@@ -187,7 +196,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       headers: {
         subject: m.subject,
         from: m.from,
-        to: [{ name: 'わたし', address: 'me@example.com' }],
+        to: [{ name: 'わたし', address: m.account }],
         cc: [],
         replyTo: [],
         date: m.receivedAt,

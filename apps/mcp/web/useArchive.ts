@@ -22,7 +22,8 @@ export const PHASE_LABEL: Record<Job['phase'], string> = {
 
 const DONE_VISIBLE_MS = 5000
 
-// アーカイブを積み、同期デーモンが IMAP で実行し終えるまで追いかける。完了したら onDone を呼ぶ
+// アーカイブを積み、同期デーモンが IMAP で実行し終えるまで追いかける。完了したら onDone を呼ぶ。
+// 戻り値は成功したか（一覧から先に消しておいたメールを、失敗したら戻すため）
 export function useArchive(onDone: () => void) {
   const [jobs, setJobs] = useState<Job[]>([])
   const [now, setNow] = useState(Date.now())
@@ -46,7 +47,7 @@ export function useArchive(onDone: () => void) {
 
   const archive = useCallback(
     // path を変えると迷惑メールの削除（/mcp/api/delete-junk）も同じ進行状況の欄で追える
-    async (body: Record<string, unknown>, label: string, path = '/mcp/api/archive') => {
+    async (body: Record<string, unknown>, label: string, path = '/mcp/api/archive'): Promise<boolean> => {
       const id = Date.now() + Math.random()
       setNow(Date.now())
       setJobs((list) => [...list, { id, label, phase: 'sending', startedAt: Date.now() }])
@@ -56,7 +57,7 @@ export function useArchive(onDone: () => void) {
         if (ids.length === 0) {
           update(id, { phase: 'done', count: 0 })
           onDone()
-          return
+          return true
         }
         update(id, { phase: 'queued', count: queued.operations.reduce((s, o) => s + o.count, 0) })
         // 実行は同期デーモン。だいたい数秒〜数十秒で終わる
@@ -73,12 +74,14 @@ export function useArchive(onDone: () => void) {
                 count: ops.reduce((s, o) => s + (o.result?.moved ?? o.result?.deleted ?? 0), 0),
               })
             onDone()
-            return
+            return !failed
           }
         }
         update(id, { phase: 'failed', error: '3 分たっても終わりませんでした。少し待ってから更新してください' })
+        return false
       } catch (err) {
         update(id, { phase: 'failed', error: (err as Error).message })
+        return false
       }
     },
     [onDone, update],

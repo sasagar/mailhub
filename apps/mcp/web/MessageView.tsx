@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, apiBlob, LoggedOut } from './auth.ts'
 import { fmtSize, n, senderName, when } from './format.ts'
 import type { Addr, MessageBody, MessageRef, ThreadItem } from './types.ts'
+import { AccountTag, Icon } from './ui.tsx'
 
 const fmtDate = (iso: string | null) =>
   iso
@@ -38,19 +39,24 @@ function frameDocument(html: string, dark: boolean): string {
 const replyRef = (b: MessageBody) =>
   b.messageId ? { id: b.messageId } : { account: b.account, mailbox: b.mailbox, uid: b.uid }
 
-type ArchiveFn = (body: Record<string, unknown>, label: string) => Promise<void>
+// 本文の画面からの片付け。一覧から外して次のメールを開くのは呼び出し側（App）がする
+export type MessageAction = 'archive' | 'spam' | 'not_spam'
 
 export function MessageView(props: {
   target: MessageRef
+  // pane: PC の 3 列の右側に置く / sheet: スマホとタブレットで全画面に重ねる
+  variant: 'pane' | 'sheet'
   canTriage: boolean
-  // 迷惑メールにする・戻す（一覧と同じ操作キュー）
-  archive: ArchiveFn
+  onAction: (action: MessageAction, info: { messageId: string; subject: string }) => void
   onClose: () => void
   onError: (err: unknown) => void
   onMarkedRead: () => void
   onReply: (replyTo: { id: string } | { account: string; mailbox: string; uid: number }, replyAll: boolean) => void
   // スレッドの別のメールを開く
   onOpen: (ref: MessageRef) => void
+  // 一覧の前後のメール（無ければ出さない）
+  onPrev?: () => void
+  onNext?: () => void
 }) {
   const [body, setBody] = useState<MessageBody | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -85,10 +91,18 @@ export function MessageView(props: {
         if (err instanceof LoggedOut) props.onError(err)
         else setError((err as Error).message)
       })
-    // 開いている間は後ろの一覧をスクロールさせない
+  }, [props.target, loadImages])
+  // 全画面で重ねている間は、後ろの一覧をスクロールさせない
+  useEffect(() => {
+    if (props.variant !== 'sheet') return
     document.documentElement.classList.add('sheet-open')
     return () => document.documentElement.classList.remove('sheet-open')
-  }, [props.target, loadImages])
+  }, [props.variant])
+  // 本文が替わったら先頭から見せる（PC の右側は同じ枠のまま中身だけ替わる）
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    scroller.current?.scrollTo(0, 0)
+  }, [props.target])
 
   // スレッドは本文を出してから取りに行く（数秒かかることがあるので、本文の表示を待たせない）
   const [thread, setThread] = useState<ThreadItem[] | null>(null)
@@ -162,43 +176,78 @@ export function MessageView(props: {
     return observer
   }
 
-  return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="メール">
-      <div className="sheet-bar">
-        <button className="back" onClick={props.onClose}>
-          ‹ 戻る
+  const pane = props.variant === 'pane'
+  const subject = body?.headers.subject || '（件名なし）'
+  // 片付けられるのは受信トレイか迷惑メールフォルダにあるメール（検索で見つけたアーカイブ済みは対象外）
+  const act = (action: MessageAction) =>
+    body?.messageId && props.onAction(action, { messageId: body.messageId, subject })
+  const canAct = props.canTriage && body?.messageId != null
+  const replyAll = body != null && body.headers.to.length + body.headers.cc.length > 1
+
+  const actions = body && (
+    <div className="reader-actions" role="toolbar" aria-label="このメールの操作">
+      {canAct &&
+        (body.junk ? (
+          <button className="tool" onClick={() => act('not_spam')} title="迷惑メールではない">
+            <Icon name="undo" />
+            <span>迷惑メールではない</span>
+          </button>
+        ) : (
+          <button className="tool" onClick={() => act('archive')} title="アーカイブ（e）">
+            <Icon name="archive" />
+            <span>アーカイブ</span>
+          </button>
+        ))}
+      <button className="tool" onClick={() => props.onReply(replyRef(body), false)} title="返信（r）">
+        <Icon name="reply" />
+        <span>返信</span>
+      </button>
+      {replyAll && (
+        <button className="tool" onClick={() => props.onReply(replyRef(body), true)} title="全員に返信（a）">
+          <Icon name="replyAll" />
+          <span>全員に返信</span>
         </button>
-        {body && (
-          <span className="bar-actions">
-            {props.canTriage && body.messageId && (
-              <button
-                className="quiet"
-                onClick={() => {
-                  const subject = body.headers.subject || '（件名なし）'
-                  void props.archive(
-                    body.junk
-                      ? { message_ids: [body.messageId], action: 'not_spam' }
-                      : { message_ids: [body.messageId], action: 'spam', mark_read: true },
-                    `${body.junk ? '受信トレイに戻す' : '迷惑メールへ'}: ${subject}`,
-                  )
-                  props.onClose()
-                }}
-              >
-                {body.junk ? '迷惑メールではない' : '迷惑メール'}
-              </button>
-            )}
-            <button className="quiet" onClick={() => props.onReply(replyRef(body), false)}>
-              返信
-            </button>
-            {body.headers.to.length + body.headers.cc.length > 1 && (
-              <button className="quiet" onClick={() => props.onReply(replyRef(body), true)}>
-                全員に返信
-              </button>
-            )}
-          </span>
+      )}
+      {canAct && !body.junk && (
+        <button className="tool" onClick={() => act('spam')} title="迷惑メールにする">
+          <Icon name="junk" />
+          <span>迷惑メール</span>
+        </button>
+      )}
+    </div>
+  )
+
+  return (
+    <div
+      className={pane ? 'reader pane' : 'reader sheet'}
+      role={pane ? 'region' : 'dialog'}
+      aria-modal={pane ? undefined : true}
+      aria-label="メール"
+    >
+      <div className="sheet-bar">
+        {pane ? (
+          actions
+        ) : (
+          <button className="back" onClick={props.onClose}>
+            <Icon name="back" />
+            戻る
+          </button>
         )}
+        <span className="reader-nav">
+          <button className="icon-button" disabled={!props.onPrev} onClick={props.onPrev} aria-label="前のメール（k）">
+            <Icon name="up" />
+          </button>
+          <button className="icon-button" disabled={!props.onNext} onClick={props.onNext} aria-label="次のメール（j）">
+            <Icon name="down" />
+          </button>
+          {pane && (
+            <button className="icon-button" onClick={props.onClose} aria-label="閉じる（Esc）">
+              <Icon name="close" />
+            </button>
+          )}
+        </span>
       </div>
-      <div className="sheet-body">
+      <div className="sheet-body" ref={scroller}>
         {error && <p className="notice error">{error}</p>}
         {!body && !error && (
           <p className="notice searching">
@@ -214,7 +263,10 @@ export function MessageView(props: {
                 <b>{senderName(body.headers.from)}</b>
                 {body.headers.from?.address && <span>{body.headers.from.address}</span>}
               </p>
-              <p className="message-date">{fmtDate(body.headers.date)}</p>
+              <p className="message-date">
+                {fmtDate(body.headers.date)}
+                <AccountTag account={body.account} />
+              </p>
               <details className="message-rcpt">
                 <summary>宛先 {fmtAddrs(body.headers.to).slice(0, 40)}</summary>
                 <dl>
@@ -328,6 +380,8 @@ export function MessageView(props: {
           </article>
         )}
       </div>
+      {/* スマホとタブレットでは、操作を親指の届く画面下に置く */}
+      {!pane && actions && <div className="reader-bottom">{actions}</div>}
     </div>
   )
 }
