@@ -8,10 +8,10 @@ import type { Props, Scope } from './scopes.ts'
 
 export const SVC_ROUTE = '/svc/mcp'
 
-// 読み取りと下書きだけ。無人で動くので、メール本文に仕込まれた指示に乗せられても、メールを動かしたり
-// 既読にしたりはできないようにする（アーカイブ・迷惑メール・既読は人が Claude や Web 画面から行う）。
-// 送信と削除はもともと MCP に無い。下書きは本人が Web 画面で確かめてから送る
-const SVC_SCOPES: Scope[] = ['mail.read', 'mail.draft']
+// 読み取りと整理（既読・アーカイブ・迷惑メール・下書き）。ツールは /mcp と同じにする（2026-10-14 ユーザー判断）。
+// 書き込み系をどこまで自動で使うかは、エージェント側の承認で決める。送信と削除はもともと MCP に無い。
+// メールの中身に乗せられたときの被害は、1 回 500 通の上限・本文の区切り・下書きの宛先の警告などで抑える
+const SVC_SCOPES: Scope[] = ['mail.read', 'mail.triage']
 
 type AccessClaims = {
   iss: string
