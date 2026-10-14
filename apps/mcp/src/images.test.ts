@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { blockImages, externalUrl, IMAGE_PREFIX, proxyImages, rewriteImages, serveImage } from './images.ts'
+import {
+  blockImages,
+  externalUrl,
+  isFetchableImageUrl,
+  IMAGE_PREFIX,
+  proxyImages,
+  rewriteImages,
+  serveImage,
+} from './images.ts'
 
 const p = (url: string) => `P[${url}]`
 
@@ -81,5 +89,23 @@ describe('blockImages', () => {
     const out = blockImages('<img src="https://a.example/x.png"><div style="background:url(https://a.example/y.png)">')
     expect(out).not.toContain('a.example')
     expect(out).toContain('src="data:image/gif;base64,')
+  })
+})
+
+describe('isFetchableImageUrl', () => {
+  it('普通の画像の URL は取りに行く', () => {
+    expect(isFetchableImageUrl('https://scontent.cdninstagram.com/v/a.jpg?x=1')).toBe(true)
+    expect(isFetchableImageUrl('http://img.example.com/a.png')).toBe(true)
+  })
+  it('自分のゾーン・IP 直書き・ポート指定・内部名は断る', () => {
+    expect(isFetchableImageUrl('https://mailhub.bktsk.com/mcp/api/overview')).toBe(false)
+    expect(isFetchableImageUrl('https://bktsk.com/')).toBe(false)
+    expect(isFetchableImageUrl('http://127.0.0.1/a.png')).toBe(false)
+    expect(isFetchableImageUrl('http://169.254.169.254/latest')).toBe(false)
+    expect(isFetchableImageUrl('http://[::1]/a.png')).toBe(false)
+    expect(isFetchableImageUrl('https://img.example.com:8443/a.png')).toBe(false)
+    expect(isFetchableImageUrl('http://localhost/a.png')).toBe(false)
+    expect(isFetchableImageUrl('http://intranet/a.png')).toBe(false)
+    expect(isFetchableImageUrl('file:///etc/passwd')).toBe(false)
   })
 })

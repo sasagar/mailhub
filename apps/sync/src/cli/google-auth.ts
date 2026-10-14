@@ -64,7 +64,9 @@ const code = await new Promise<string>((resolve, reject) => {
       res.end('<h1>許可を受け取りました。このタブは閉じてかまいません。</h1>')
       finish(() => resolve(c))
     } catch (err) {
-      res.end(`<h1>${(err as Error).message}</h1>`)
+      // エラーの文言にはクエリ（error パラメータ）が入るので、HTML として解釈させない
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+      res.end((err as Error).message)
     }
   })
   const finish = (done: () => void) => {

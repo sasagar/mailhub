@@ -182,7 +182,15 @@ export async function getOperations(sql: Sql, ids: string[]) {
 // ID をブラウザやエージェントから送らずに済む
 export async function enqueueArchiveBySenders(
   sql: Sql,
-  opts: { addresses: string[]; account?: string; markSeen: boolean; requestedBy: string; action?: MoveAction },
+  opts: {
+    addresses: string[]
+    account?: string
+    markSeen: boolean
+    requestedBy: string
+    action?: MoveAction
+    // 1 回に動かせるメールの上限（エージェントからの指定に付ける）。超えたら何もせずに断る
+    maxMessages?: number
+  },
 ) {
   const addresses = [...new Set(opts.addresses.map((a) => a.toLowerCase()))]
   const rows = await sql`
@@ -195,6 +203,11 @@ export async function enqueueArchiveBySenders(
     )
       ${opts.account ? sql`and a.email = ${opts.account}` : sql``}`
   if (rows.length === 0) return { operations: [], notFound: [] }
+  if (opts.maxMessages !== undefined && rows.length > opts.maxMessages) {
+    throw new UserError(
+      `対象が ${rows.length} 通あり、1 回の上限（${opts.maxMessages} 通）を超えています。差出人やアカウントを絞るか、本人に確認してください`,
+    )
+  }
   return enqueueArchive(sql, {
     messageIds: rows.map((r) => String(r.id)),
     markSeen: opts.markSeen,

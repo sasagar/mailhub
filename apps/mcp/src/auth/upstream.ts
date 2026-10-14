@@ -70,7 +70,7 @@ export async function verifyIdToken(env: Env, token: string): Promise<Claims> {
   // Access の issuer はチームのドメインではなく、アプリごとの URL（.../sso/oidc/<client_id>）。完全一致で比べる
   const expectedIssuer = env.ACCESS_TOKEN_URL.replace(/\/token$/, '')
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
-  if (claims.exp < Date.now() / 1000) throw new Error('id_token の期限切れ')
+  if (typeof claims.exp !== 'number' || claims.exp < Date.now() / 1000) throw new Error('id_token の期限切れ')
   if (claims.iss !== expectedIssuer) throw new Error(`id_token の発行元が違います: ${claims.iss}`)
   if (!audiences.includes(env.ACCESS_CLIENT_ID)) throw new Error('id_token の宛先が違います')
   return claims

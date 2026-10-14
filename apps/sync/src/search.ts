@@ -49,7 +49,8 @@ export async function runSearchRequest(sql: Sql, accounts: Account[], id: string
     await sql`
       update search_requests set status = 'done', results = ${sql.json({ hits, totals })}, finished_at = now()
       where id = ${id}`
-    log(`検索 #${id}「${req.query}」: ${hits.length} 件（${Date.now() - started} ms）`)
+    // 検索語はメールの中身に関わるので、ログには長さだけ残す
+    log(`検索 #${id}（${req.query.length} 文字）: ${hits.length} 件（${Date.now() - started} ms）`)
   } catch (err) {
     await sql`update search_requests set status = 'failed', error = ${(err as Error).message}, finished_at = now() where id = ${id}`
     log(`検索 #${id} 失敗: ${(err as Error).message}`)

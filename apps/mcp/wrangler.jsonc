@@ -3,7 +3,9 @@
   "name": "mailhub-mcp",
   "main": "src/server.ts",
   "compatibility_date": "2026-09-30",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: Worker からの fetch を公開インターネット経由にする。無いと自分のゾーン宛ての fetch が
+  // Access や WAF を通らずにオリジンへ直接届く（画像プロキシを足がかりにされないように）
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   // 正規の URL は 1 つ（MCP_RESOURCE と揃える）。workers.dev からは受け付けない
   "workers_dev": false,
   // 画面は静的アセット（SPA）。API と OAuth のパスだけ Worker が先に処理する

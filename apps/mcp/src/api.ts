@@ -24,7 +24,8 @@ import {
   updateDraft,
 } from './queries.ts'
 import { blockImages, proxyImages } from './images.ts'
-import type { Props, Scope } from './scopes.ts'
+import { sanitizeEmailHtml } from './sanitize.ts'
+import { isAllowedEmail, requester, type Props, type Scope } from './scopes.ts'
 
 export const API_PREFIX = '/mcp/api/'
 
@@ -109,7 +110,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
         query,
         account: q.get('account') ?? undefined,
         maxResults: Math.min(Number(q.get('limit') ?? 50) || 50, 200),
-        requestedBy: `web:${props.clientName}`,
+        requestedBy: requester('web', props),
       }),
     )
   }
@@ -127,7 +128,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
           ? { account: q.get('account')!, mailbox: q.get('mailbox')!, uid }
           : null
     if (!ref) throw new HttpError(400, 'id か、account・mailbox・uid を指定してください')
-    const by = `web:${props.clientName}`
+    const by = requester('web', props)
     if (url.pathname === `${API_PREFIX}thread`) return json(await getThread(sql, ref, by))
     if (url.pathname === `${API_PREFIX}attachment`) {
       const index = Number(q.get('index'))
@@ -149,6 +150,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     // 書き換えに失敗しても本文は返す（画像は枠の CSP で止まるので IP は漏れない。画像が出ないだけ）
     const imagesBlocked = body.junk && q.get('images') !== '1'
     if (body.html) {
+      body.html = sanitizeEmailHtml(body.html)
       try {
         body.html = imagesBlocked
           ? blockImages(body.html)
@@ -165,9 +167,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       .object({ message_ids: z.array(numericId).min(1).max(2000) })
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
-    return json(
-      await enqueueMarkSeen(sql, { messageIds: body.data.message_ids, requestedBy: `web:${props.clientName}` }),
-    )
+    return json(await enqueueMarkSeen(sql, { messageIds: body.data.message_ids, requestedBy: requester('web', props) }))
   }
   // 下書き。送信だけは mail.send（Web 画面だけに与える権限）が要る
   if (url.pathname === `${API_PREFIX}drafts`) {
@@ -198,14 +198,14 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
           from: d.from,
           replyTo,
           replyAll: d.reply_all,
-          createdBy: `web:${props.clientName}`,
+          createdBy: requester('web', props),
         }),
       )
     }
     if (!d.id) throw new HttpError(400, 'id を指定してください')
-    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d, `web:${props.clientName}`))
+    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d, requester('web', props)))
     if (request.method === 'DELETE') {
-      await deleteDraft(sql, d.id, `web:${props.clientName}`)
+      await deleteDraft(sql, d.id, requester('web', props))
       return json({ deleted: d.id })
     }
   }
@@ -215,7 +215,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       .object({ id: numericId, version: z.number().int().positive() })
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, 'id と version を指定してください')
-    return json(await sendDraftNow(sql, body.data.id, body.data.version, `web:${props.clientName}`))
+    return json(await sendDraftNow(sql, body.data.id, body.data.version, requester('web', props)))
   }
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}operations`) {
     need('mail.read')
@@ -235,7 +235,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       ])
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
-    const requestedBy = `web:${props.clientName}`
+    const requestedBy = requester('web', props)
     if ('all' in body.data) return json(await enqueueEmptyJunk(sql, { account: body.data.account, requestedBy }))
     return json(
       await enqueueArchive(sql, { messageIds: body.data.message_ids, markSeen: false, requestedBy, action: 'delete' }),
@@ -247,7 +247,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     const parsed = ArchiveBody.safeParse(raw)
     const action = MoveAction.safeParse(raw?.action)
     if (!parsed.success || !action.success) throw new HttpError(400, '本文の形式が正しくありません')
-    const requestedBy = `web:${props.clientName}`
+    const requestedBy = requester('web', props)
     const body = parsed.data
     if ('message_ids' in body) {
       return json(
@@ -279,6 +279,8 @@ export const restApi = {
     if (!props?.email || !Array.isArray(props.scopes) || !props.clientName) {
       return json({ error: 'トークンに権限情報がありません' }, 403)
     }
+    // 許可アドレスから外したら、発行済みのトークンもすぐ使えなくする
+    if (!isAllowedEmail(env.ALLOWED_EMAILS, props.email)) return json({ error: '許可されていません' }, 403)
     const sql = createSql(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false })
     try {
       return await route(request, env, sql, props as Props)

@@ -1,5 +1,5 @@
 import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provider'
-import { isScope, SCOPES, type Props, type Scope } from '../scopes.ts'
+import { isAllowedEmail, isScope, SCOPES, type Props, type Scope } from '../scopes.ts'
 import { IMAGE_PREFIX, serveImage } from '../images.ts'
 import { isAllowedRedirect } from './redirects.ts'
 import { renderConsent, securityHeaders } from './html.ts'
@@ -83,8 +83,12 @@ export const authHandler = {
       if (url.pathname === '/callback' && request.method === 'GET') return await callback(request, env)
       return new Response('Not Found', { status: 404 })
     } catch (err) {
+      // 理由はログにだけ残す（クエリや上流の応答をそのまま画面に映すと、偽の案内文を表示させられる）
       console.error(`${url.pathname}: ${(err as Error).message}`)
-      return new Response(`認可に失敗しました: ${(err as Error).message}`, { status: 400 })
+      return new Response('認可に失敗しました。最初からやり直してください。', {
+        status: 400,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      })
     }
   },
 }
@@ -176,17 +180,17 @@ async function callback(request: Request, env: AuthEnv) {
   const claims = await verifyIdToken(env, idToken)
 
   // Access のポリシーで絞っているが、念のため Worker 側でも許可したアドレスだけ通す
-  const allowed = env.ALLOWED_EMAILS.split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
   const email = claims.email?.toLowerCase()
-  if (!email || !allowed.includes(email)) throw new Error(`${claims.email ?? '(メール無し)'} は許可されていません`)
+  if (!email || !isAllowedEmail(env.ALLOWED_EMAILS, email)) {
+    throw new Error(`${claims.email ?? '(メール無し)'} は許可されていません`)
+  }
 
   const client = await env.OAUTH_PROVIDER.lookupClient(pending.oauthReqInfo.clientId)
   const props: Props = {
     email,
     scopes: pending.scopes,
     clientName: client?.clientName || pending.oauthReqInfo.clientId,
+    clientId: pending.oauthReqInfo.clientId,
   }
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: pending.oauthReqInfo,

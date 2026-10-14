@@ -19,10 +19,20 @@ const addr = (a?: Address): Addr[] =>
       : [{ name: a.name || null, address: ('address' in a && a.address) || null }]
 const addrs = (list?: Address[]) => (list ?? []).flatMap(addr)
 
-// HTML しか無いメールのためのテキスト版（MCP で読ませる用。表示は HTML を使う）
+// 画面に出ない要素（hidden 属性・display:none・visibility:hidden・文字の大きさ 0・透明）。
+// 本人には見えずエージェントにだけ読ませる指示を仕込めるので、テキストにするときに落とす。
+// 同じタグが入れ子だと途中までしか落ちないが、そのときは残す側（見せすぎる側）に倒れるだけ
+const HIDDEN_ELEMENT =
+  /<([a-z][a-z0-9]*)\b[^>]*(?:\shidden(?=[\s=>/])|style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?:px|pt|em|%)?\s*[;"']|opacity\s*:\s*0(?:\.0+)?\s*[;"']|max-height\s*:\s*0(?:px)?\s*[;"']))[^>]*>[\s\S]*?<\/\1\s*>/gi
+// ゼロ幅の文字と、表示の向きを変える制御文字（見た目と中身を食い違わせるのに使われる）
+const INVISIBLE_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g
+export const stripInvisible = (text: string) => text.replace(INVISIBLE_CHARS, '')
+
+// HTML メールのテキスト版（MCP で読ませる用。表示は HTML を使う）
 export function htmlToText(html: string): string {
-  return html
+  return stripInvisible(html)
     .replace(/<(script|style|head)[\s\S]*?<\/\1>/gi, '')
+    .replace(HIDDEN_ELEMENT, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '・')
@@ -114,7 +124,9 @@ export async function fetchBody(sql: Sql, account: Account, loc: BodyLocator): P
   const parsed = await PostalMime.parse(source)
   const inline = parsed.html ? inlineCidImages(parsed.html, parsed.attachments) : null
   const html = inline?.html ?? null
-  const text = parsed.text?.trim() ? parsed.text : html ? htmlToText(html) : ''
+  // HTML があれば、画面に出ている HTML から作ったテキストをエージェントに読ませる。text/plain を優先すると、
+  // 本人が見る HTML とエージェントが読むテキストを別の内容にでき、見えない指示を仕込めるため
+  const text = html ? htmlToText(html) : stripInvisible(parsed.text ?? '')
   const headers = {
     subject: parsed.subject ?? null,
     from: parsed.from ? (addr(parsed.from)[0] ?? null) : null,

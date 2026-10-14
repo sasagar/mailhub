@@ -8,9 +8,10 @@ import type { Props, Scope } from './scopes.ts'
 
 export const SVC_ROUTE = '/svc/mcp'
 
-// 読み取りと整理（既読・アーカイブ・迷惑メール・下書き）。送信は無い（MCP に送信のツールは無く、削除も Web 画面だけ）。
-// 書き込み系をどこまで自動で使うかは、エージェント側の承認で決める
-const SVC_SCOPES: Scope[] = ['mail.read', 'mail.triage']
+// 読み取りと下書きだけ。無人で動くので、メール本文に仕込まれた指示に乗せられても、メールを動かしたり
+// 既読にしたりはできないようにする（アーカイブ・迷惑メール・既読は人が Claude や Web 画面から行う）。
+// 送信と削除はもともと MCP に無い。下書きは本人が Web 画面で確かめてから送る
+const SVC_SCOPES: Scope[] = ['mail.read', 'mail.draft']
 
 type AccessClaims = {
   iss: string
@@ -31,8 +32,9 @@ async function signingKey(teamDomain: string, kid: string): Promise<Jwk | undefi
   const url = `https://${teamDomain}/cdn-cgi/access/certs`
   const fresh = jwksCache?.url === url && Date.now() - jwksCache.fetchedAt < JWKS_TTL_MS
   let key = fresh ? jwksCache!.keys.find((k) => k.kid === kid) : undefined
-  // 鍵の入れ替え直後は手元の一覧に無いので、見つからなければ取り直す
-  if (!key) {
+  // 鍵の入れ替え直後は手元の一覧に無いので、見つからなければ取り直す。
+  // ただし取り直しは 1 分に 1 回まで（でたらめな kid を送られるたびに取りに行かない）
+  if (!key && !(jwksCache?.url === url && Date.now() - jwksCache.fetchedAt < 60_000)) {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`Access の公開鍵を取得できません: ${res.status}`)
     const { keys } = (await res.json()) as { keys: Jwk[] }

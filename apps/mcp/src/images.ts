@@ -134,6 +134,62 @@ export async function proxyImages(html: string, origin: string, secret: string):
 
 // ---- 取得 ----
 
+// 取りに行ってよい先か。自分のゾーン（Access や WAF を通らずにオリジンへ届いてしまう）、IP アドレスの直書き、
+// 標準以外のポートは断る（メールの画像を足がかりに、内部のサービスへ要求を送らせない）
+const OWN_ZONES = ['bktsk.com']
+export function isFetchableImageUrl(raw: string): boolean {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false
+  if (url.username || url.password || url.port !== '') return false
+  const host = url.hostname.toLowerCase()
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.startsWith('[')) return false
+  if (!host.includes('.') || host.endsWith('.local') || host.endsWith('.internal') || host === 'localhost') return false
+  return !OWN_ZONES.some((z) => host === z || host.endsWith(`.${z}`))
+}
+
+// 返してよい画像の種類（それ以外は、画像の顔をした HTML などとして解釈されうるので返さない）
+const IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/svg+xml',
+  'image/bmp',
+  'image/x-icon',
+  'image/vnd.microsoft.icon',
+])
+const MAX_REDIRECTS = 3
+
+// 読みながら数え、上限を超えたら打ち切る（Content-Length が無い応答でメモリを使い切らない）
+async function readLimited(body: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array | null> {
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > limit) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(size)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out
+}
+
 // /img/<署名>/<URL> を受けて画像を返す。相手には Cloudflare の IP だけが見え、Cookie・Referer・端末の情報は渡さない
 export async function serveImage(request: Request, secret: string): Promise<Response> {
   const fail = (status: number) =>
@@ -145,27 +201,38 @@ export async function serveImage(request: Request, secret: string): Promise<Resp
   try {
     url = new TextDecoder().decode(fromB64url(encoded))
     const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), fromB64url(sig), encoder.encode(url))
-    if (!ok || !/^https?:\/\//i.test(url)) return fail(403)
+    if (!ok) return fail(403)
   } catch {
     return fail(400)
   }
 
-  let upstream: Response
-  try {
-    upstream = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mailhub-image-proxy)', Accept: 'image/*' },
-      redirect: 'follow',
-      // 同じ画像を開き直しても、元のサーバーには何度も取りに行かない
-      cf: { cacheEverything: true, cacheTtl: 86400 },
-    })
-  } catch {
-    return fail(502)
+  // リダイレクトは 1 回ずつ追い、転送先も同じ条件で確かめる
+  let upstream: Response | undefined
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!isFetchableImageUrl(url)) return fail(403)
+    try {
+      upstream = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mailhub-image-proxy)', Accept: 'image/*' },
+        redirect: 'manual',
+        // 同じ画像を開き直しても、元のサーバーには何度も取りに行かない
+        cf: { cacheEverything: true, cacheTtl: 86400 },
+      })
+    } catch {
+      return fail(502)
+    }
+    const location = upstream.headers.get('Location')
+    if (upstream.status < 300 || upstream.status >= 400 || !location) break
+    url = new URL(location, url).href
+    upstream = undefined
   }
+  if (!upstream) return fail(508)
   const type = upstream.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() ?? ''
-  if (!upstream.ok || !type.startsWith('image/')) return fail(upstream.ok ? 415 : 502)
+  if (!upstream.ok || !upstream.body) return fail(502)
+  // 「image/png, text/html」のように複数の型を並べたものも断る
+  if (!IMAGE_TYPES.has(type) || (upstream.headers.get('Content-Type') ?? '').includes(',')) return fail(415)
   if (Number(upstream.headers.get('Content-Length') ?? 0) > MAX_BYTES) return fail(413)
-  const body = await upstream.arrayBuffer()
-  if (body.byteLength > MAX_BYTES) return fail(413)
+  const body = await readLimited(upstream.body, MAX_BYTES)
+  if (!body) return fail(413)
   return new Response(request.method === 'HEAD' ? null : body, {
     headers: {
       'Content-Type': type,
