@@ -28,7 +28,8 @@
    Postgres を公開側のインターフェースで受け付けないこと。
 
    続けて `deploy/sql/harden-mailhub-db.sql`（ほかのロールが繋がらないようにする）と、
-   `deploy/sql/create-app-role.sql`（`mailhub_app` を作る。パスワードは psql の変数 `app_password` で渡す）を流す。
+   `deploy/sql/create-app-role.sql`（`mailhub_app` を作る）を流す。パスワードは平文を DB に送らないよう、
+   ファイルの先頭に書いた手順で SCRAM の検証用の値として入れる。
 
 2. Secret を作る。暗号化キーは DB と別の場所（ここ）にだけ置く
 

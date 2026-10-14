@@ -1,12 +1,14 @@
 -- 常駐デーモン用のロール mailhub_app。データの読み書きだけで、テーブルを作り替えられない（マイグレーションは
 -- 所有者の mailhub が k3s の init コンテナで流す）。管理者（postgres）で、mailhub の DB に一度流す。
--- パスワードは psql の変数 app_password で渡す（コマンドの引数に残さないよう、標準入力から \set する）
---   sudo -u postgres psql -d mailhub -v app_password=... -f deploy/sql/create-app-role.sql
+--   sudo -u postgres psql -d mailhub -f deploy/sql/create-app-role.sql
+-- パスワードはここでは付けない。平文を DB に送らないよう、手元で作った SCRAM の検証用の値で入れる:
+--   pw=$(openssl rand -hex 24)
+--   v=$(printf %s "$pw" | node deploy/scripts/scram-verifier.mjs)
+--   printf "alter role mailhub_app password '%s';" "$v" | sudo -u postgres psql -d mailhub -f -
+--   （$pw は k3s の Secret の MAILHUB_APP_PGPASSWORD に入れる）
 -- pg_hba.conf にも mailhub_app の行（Pod の範囲から scram-sha-256）が要る
 
-select format('create role mailhub_app login password %L', :'app_password')
-  where not exists (select 1 from pg_roles where rolname = 'mailhub_app') \gexec
-select format('alter role mailhub_app password %L', :'app_password') \gexec
+select 'create role mailhub_app login' where not exists (select 1 from pg_roles where rolname = 'mailhub_app') \gexec
 
 grant connect on database mailhub to mailhub_app;
 grant usage on schema public to mailhub_app;
