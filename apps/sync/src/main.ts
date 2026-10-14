@@ -9,7 +9,8 @@ import { AccountSync } from './sync/account.ts'
 
 const config = loadConfig()
 const sql = createSql(config.databaseUrl)
-await migrate(sql)
+// 本番は k3s の init コンテナが所有者のロールで先に流す（MAILHUB_MIGRATE=0）。手元の開発ではここで流す
+if (process.env.MAILHUB_MIGRATE !== '0') await migrate(sql)
 
 const accounts = await loadAccounts(sql, config.masterKey)
 if (accounts.length === 0) console.log('有効なアカウントがありません。pnpm account:add で追加してください')
