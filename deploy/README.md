@@ -8,10 +8,11 @@
 
 ## ロール
 
-| ロール        | 使うもの                 | 権限                                                                            |
-| ------------- | ------------------------ | ------------------------------------------------------------------------------- |
-| `mailhub`     | 同期デーモン             | DB の所有者                                                                     |
-| `mailhub_mcp` | Remote MCP（Hyperdrive） | `deploy/sql/grant-mcp.sql` の分だけ。暗号化済みのアプリパスワードの列は読めない |
+| ロール        | 使うもの                                 | 権限                                                                                 |
+| ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| `mailhub`     | マイグレーション（k3s の init コンテナ） | DB の所有者。常駐するプロセスはこのパスワードを持たない                              |
+| `mailhub_app` | 同期デーモン                             | データの読み書きだけ（`deploy/sql/create-app-role.sql`）。テーブルは作り替えられない |
+| `mailhub_mcp` | Remote MCP（Hyperdrive）                 | `deploy/sql/grant-mcp.sql` の分だけ。暗号化済みのアプリパスワードの列は読めない      |
 
 ## 初回だけ
 
@@ -23,8 +24,11 @@
    sudo -u postgres psql -c "create database mailhub owner mailhub"
    ```
 
-   `pg_hba.conf` に Pod の CIDR から `mailhub` DB・`mailhub` ロールへの `scram-sha-256` を足して reload する。
+   `pg_hba.conf` に Pod の CIDR から `mailhub` DB・`mailhub` と `mailhub_app` ロールへの `scram-sha-256` を足して reload する。
    Postgres を公開側のインターフェースで受け付けないこと。
+
+   続けて `deploy/sql/harden-mailhub-db.sql`（ほかのロールが繋がらないようにする）と、
+   `deploy/sql/create-app-role.sql`（`mailhub_app` を作る。パスワードは psql の変数 `app_password` で渡す）を流す。
 
 2. Secret を作る。暗号化キーは DB と別の場所（ここ）にだけ置く
 
@@ -32,14 +36,17 @@
    kubectl create namespace mailhub
    kubectl -n mailhub create secret generic mailhub-secret \
      --from-literal=PGPASSWORD='<mailhub のパスワード>' \
+     --from-literal=MAILHUB_APP_PGPASSWORD='<mailhub_app のパスワード>' \
      --from-literal=MAILHUB_MASTER_KEY="$(openssl rand -base64 32)"
    ```
 
    `MAILHUB_MASTER_KEY` はパスワードマネージャーにも控える（失うと保存済みのアプリパスワードを復号できない）。
+   Secret は環境変数ではなくファイルとして Pod に渡す（`*_FILE`）。本体のコンテナには `PGPASSWORD`（所有者）を渡さない。
 
-3. `kubectl apply -f deploy/k3s/mailhub.yaml`。起動時にマイグレーションが走る
+3. `kubectl apply -f deploy/k3s/mailhub.yaml`。起動のたびに init コンテナが所有者のロールでマイグレーションを流す
 
-4. `deploy/sql/grant-mcp.sql` を `mailhub` DB に流す（マイグレーションでテーブルが増えたら流し直す）
+4. `deploy/sql/grant-mcp.sql` を `mailhub` DB に流す（マイグレーションでテーブルが増えたら流し直す）。
+   `mailhub_app` の権限は、所有者が作るテーブルに自動で付く（default privileges）
 
 5. アカウント追加は Pod 内で対話実行する
 
@@ -53,6 +60,7 @@
 1. Google Cloud で OAuth クライアントを作る。種類は「デスクトップ アプリ」、同意画面は外部・**公開ステータス「本番環境」**
    （「テスト中」だと更新用トークンが 7 日で切れる）、スコープは `https://mail.google.com/`。未検証のまま個人利用で使う
 2. `sh deploy/scripts/set-google-client.sh` でクライアント ID とシークレットを Secret に入れる
+   （Secret を変えたら `kubectl -n mailhub rollout restart deploy/mailhub-sync` で読み込ませる）
 3. Pod の中で同意する（表示された URL をブラウザで開き、許可後に 127.0.0.1 へ戻されたページの URL を貼り付ける）
 
    ```sh

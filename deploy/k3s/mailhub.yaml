@@ -63,6 +63,39 @@ spec:
       securityContext:
         fsGroup: 1000
       terminationGracePeriodSeconds: 30
+      # マイグレーションはテーブルの所有者（mailhub）で、起動の前にだけ流す。
+      # 常駐するデーモンはデータの読み書きだけのロール（mailhub_app）で動き、所有者のパスワードは持たない
+      initContainers:
+        - name: migrate
+          image: ghcr.io/sasagar/mailhub-sync:latest
+          command: [node_modules/.bin/tsx, src/cli/migrate.ts]
+          env:
+            - name: PGHOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: PGDATABASE
+              value: mailhub
+            - name: PGUSER
+              value: mailhub
+            - name: PGPASSWORD_FILE
+              value: /run/secrets/mailhub-owner/PGPASSWORD
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: owner-secret
+              mountPath: /run/secrets/mailhub-owner
+              readOnly: true
       containers:
         - name: sync
           image: ghcr.io/sasagar/mailhub-sync:latest
@@ -75,12 +108,15 @@ spec:
             - name: PGDATABASE
               value: mailhub
             - name: PGUSER
-              value: mailhub
+              value: mailhub_app
+            # マイグレーションは init コンテナで済ませてある
+            - name: MAILHUB_MIGRATE
+              value: '0'
             - name: TZ
               value: Asia/Tokyo
             # 秘密の値は環境変数ではなくファイルで渡す（/proc/<pid>/environ から読まれないように）
             - name: PGPASSWORD_FILE
-              value: /run/secrets/mailhub/PGPASSWORD
+              value: /run/secrets/mailhub/MAILHUB_APP_PGPASSWORD
             - name: MAILHUB_MASTER_KEY_FILE
               value: /run/secrets/mailhub/MAILHUB_MASTER_KEY
             - name: GOOGLE_CLIENT_ID_FILE
@@ -113,7 +149,25 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        # 本体に渡すもの（所有者のパスワード PGPASSWORD は入れない）
         - name: secret
           secret:
-            secretName: mailhub-secret # PGPASSWORD, MAILHUB_MASTER_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+            secretName: mailhub-secret
             defaultMode: 0440
+            items:
+              - key: MAILHUB_APP_PGPASSWORD
+                path: MAILHUB_APP_PGPASSWORD
+              - key: MAILHUB_MASTER_KEY
+                path: MAILHUB_MASTER_KEY
+              - key: GOOGLE_CLIENT_ID
+                path: GOOGLE_CLIENT_ID
+              - key: GOOGLE_CLIENT_SECRET
+                path: GOOGLE_CLIENT_SECRET
+        # init コンテナ（マイグレーション）に渡すもの
+        - name: owner-secret
+          secret:
+            secretName: mailhub-secret
+            defaultMode: 0440
+            items:
+              - key: PGPASSWORD
+                path: PGPASSWORD
