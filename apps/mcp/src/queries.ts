@@ -428,16 +428,41 @@ export type Draft = {
   body: string
   replyToMessageId: string | null
   inReplyTo: string | null
-  status: 'draft' | 'sending' | 'sent' | 'failed'
+  status: 'draft' | 'queued' | 'sending' | 'sent' | 'failed'
   error: string | null
   createdBy: string
+  updatedBy: string | null
+  // エージェント（MCP）が作った、または一度でも変えた下書き。画面で目立たせる
+  agentTouched: boolean
+  // 送信のときに渡す版。表示していた版と違えば送らない
+  version: number
+  // 送る前に本人に確かめてほしいこと（返信元に無い宛先など）
+  warnings: string[]
   updatedAt: string
   sentAt: string | null
 }
 
 const draftColumns = (sql: Sql) => sql`
   d.id, a.email, d.from_address, d.to_addrs, d.cc_addrs, d.bcc_addrs, d.subject, d.body_text, d.reply_to_message_id,
-  d.in_reply_to, d.status, d.error, d.created_by, d.updated_at, d.sent_at`
+  d.in_reply_to, d.status, d.error, d.created_by, d.updated_by, d.agent_touched, d.version, d.reply_expected,
+  d.reply_redirected, d.updated_at, d.sent_at`
+
+// 返信の下書きで、元のメールに無かった宛先や、返信先がすり替えられている可能性を知らせる。
+// エージェントが「返信」に見せかけて別の宛先に送らせる（元のメールを引用して持ち出す）のを、送る前に気付けるようにする
+export function draftWarnings(r: Record<string, any>): string[] {
+  const warnings: string[] = []
+  const expected = r.reply_expected as string[] | null
+  if (expected) {
+    const extra = [...r.to_addrs, ...r.cc_addrs, ...r.bcc_addrs]
+      .map((a: Addr) => a.address)
+      .filter((a: string) => !expected.includes(a.toLowerCase()))
+    if (extra.length > 0) warnings.push(`返信元のメールに無かった宛先が入っています: ${extra.join(', ')}`)
+  }
+  if (r.reply_redirected) {
+    warnings.push(`返信元のメールの返信先（Reply-To）が、差出人（${r.reply_redirected}）と違います`)
+  }
+  return warnings
+}
 
 const toDraft = (r: Record<string, any>): Draft => ({
   id: String(r.id),
@@ -453,6 +478,10 @@ const toDraft = (r: Record<string, any>): Draft => ({
   status: r.status,
   error: r.error,
   createdBy: r.created_by,
+  updatedBy: r.updated_by ?? null,
+  agentTouched: r.agent_touched === true,
+  version: Number(r.version),
+  warnings: draftWarnings(r),
   updatedAt: r.updated_at?.toISOString(),
   sentAt: r.sent_at?.toISOString() ?? null,
 })
@@ -477,8 +506,10 @@ async function resolveIdentity(sql: Sql, address: string): Promise<{ accountId: 
   throw new UserError(`${address} は登録されたアカウントでもエイリアスでもありません`)
 }
 
+// 引用は長くても 20,000 文字まで（エージェント経由で長い機密メールを丸ごと引用させないため）
+const QUOTE_LIMIT = 20_000
 const quote = (text: string) =>
-  text
+  (text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT)}\n（以下略）` : text)
     .split('\n')
     .map((l) => `> ${l}`)
     .join('\n')
@@ -509,6 +540,8 @@ export async function createDraft(
   let inReplyTo: string | null = null
   let references: string | null = null
   let replyToMessageId: string | null = null
+  let replyExpected: string[] | null = null
+  let replyRedirected: string | null = null
 
   if (opts.replyTo) {
     const orig = await getMessageBody(sql, opts.replyTo, opts.createdBy)
@@ -541,6 +574,13 @@ export async function createDraft(
     inReplyTo = h.messageId
     references = [h.references, h.messageId].filter(Boolean).join(' ') || null
     replyToMessageId = orig.messageId
+    // 返信として自然な宛先（元のメールの差出人・返信先・宛先・CC）。これ以外が入っていれば画面で警告する
+    replyExpected = [...replyTarget, ...(h.from ? [h.from] : []), ...h.to, ...h.cc]
+      .map((x) => x.address?.toLowerCase())
+      .filter((x): x is string => !!x)
+    if (h.from?.address && h.replyTo.length > 0 && !h.replyTo.some((x) => x.address === h.from!.address)) {
+      replyRedirected = h.from.address
+    }
   } else if (opts.from) {
     const id = await resolveIdentity(sql, opts.from)
     accountId = id.accountId
@@ -561,7 +601,11 @@ export async function createDraft(
       in_reply_to: inReplyTo,
       references_: references,
       reply_to_message_id: replyToMessageId,
+      reply_expected: replyExpected ? sql.json(replyExpected) : null,
+      reply_redirected: replyRedirected,
       created_by: opts.createdBy,
+      updated_by: opts.createdBy,
+      agent_touched: opts.createdBy.startsWith('mcp:'),
     })}
     returning id`
   return getDraft(sql, String(row!.id))
@@ -593,8 +637,12 @@ export async function updateDraft(
     body?: string
     from?: string
   },
+  // by: 変更した人（mcp:… / web:…）。エージェントは自分たちが作った下書きしか変えられない
+  // （本人が書いた下書きの宛先や Bcc を黙って書き換えさせない）
+  by: string,
 ): Promise<Draft> {
-  const set: Record<string, unknown> = { updated_at: new Date() }
+  const agent = by.startsWith('mcp:')
+  const set: Record<string, unknown> = { updated_at: new Date(), updated_by: by }
   if (patch.from !== undefined) {
     const [d] = await sql`select account_id from drafts where id = ${id}`
     if (!d) throw new UserError('下書きが見つかりません')
@@ -608,24 +656,51 @@ export async function updateDraft(
   if (patch.bcc !== undefined) set.bcc_addrs = sql.json(parseAddresses(patch.bcc))
   if (patch.subject !== undefined) set.subject = patch.subject
   if (patch.body !== undefined) set.body_text = patch.body
-  const rows = await sql`update drafts set ${sql(set)} where id = ${id} and status in ('draft', 'failed') returning id`
-  if (rows.length === 0) throw new UserError('編集できる下書きがありません（送信中か送信済み）')
+  const rows = await sql`
+    update drafts set ${sql(set)}, version = version + 1, agent_touched = agent_touched or ${agent}
+    where id = ${id} and status in ('draft', 'failed') ${agent ? sql`and created_by like 'mcp:%'` : sql``}
+    returning id`
+  if (rows.length === 0) {
+    throw new UserError(
+      agent
+        ? '編集できる下書きがありません（送信待ち・送信済みか、本人が作った下書き）'
+        : '編集できる下書きがありません（送信待ちか送信済み）',
+    )
+  }
   return getDraft(sql, id)
 }
 
-export async function deleteDraft(sql: Sql, id: string): Promise<void> {
-  const rows = await sql`delete from drafts where id = ${id} and status in ('draft', 'failed') returning id`
-  if (rows.length === 0) throw new UserError('消せる下書きがありません（送信中か送信済み）')
+export async function deleteDraft(sql: Sql, id: string, by: string): Promise<void> {
+  const agent = by.startsWith('mcp:')
+  const rows = await sql`
+    delete from drafts
+    where id = ${id} and status in ('draft', 'failed') ${agent ? sql`and created_by like 'mcp:%'` : sql``}
+    returning id`
+  if (rows.length === 0) {
+    throw new UserError(
+      agent
+        ? '消せる下書きがありません（送信待ち・送信済みか、本人が作った下書き）'
+        : '消せる下書きがありません（送信待ちか送信済み）',
+    )
+  }
 }
 
 // 送信を同期デーモンに頼み、結果を待つ（mail.send の権限は Web 画面だけ）
-export async function sendDraftNow(sql: Sql, id: string, requestedBy: string): Promise<Draft> {
-  const draft = await getDraft(sql, id)
-  if (draft.status !== 'draft' && draft.status !== 'failed') throw new UserError('送れる状態の下書きではありません')
-  const [a] = await sql`select account_id from drafts where id = ${id}`
+// version は画面に表示していた版。確認した後に中身が変わっていれば送らない（すり替え対策）。
+// 一致したら同じ文で queued にするので、依頼を積んでから送るまでの間も変更・削除できない
+export async function sendDraftNow(sql: Sql, id: string, version: number, requestedBy: string): Promise<Draft> {
+  const [a] = await sql`
+    update drafts set status = 'queued', error = null
+    where id = ${id} and status in ('draft', 'failed') and version = ${version}
+    returning account_id`
+  if (!a) {
+    const draft = await getDraft(sql, id)
+    if (draft.status !== 'draft' && draft.status !== 'failed') throw new UserError('送れる状態の下書きではありません')
+    throw new UserError('表示した後に下書きが変更されました。開き直して宛先と本文を確かめてから送ってください')
+  }
   const [req] = await sql`
     insert into requests (kind, account_id, params, requested_by)
-    values ('send', ${a!.account_id}, ${sql.json({ draftId: Number(id) })}, ${requestedBy})
+    values ('send', ${a.account_id}, ${sql.json({ draftId: Number(id) })}, ${requestedBy})
     returning id`
   const deadline = Date.now() + 25_000
   while (Date.now() < deadline) {

@@ -24,6 +24,7 @@ import {
 } from './queries.ts'
 import { SCOPES, type Props, type Scope } from './scopes.ts'
 import { authorizeService, SVC_ROUTE } from './svc.ts'
+import { isAllowedRedirect } from './auth/redirects.ts'
 
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 1) }] })
 
@@ -373,7 +374,8 @@ function createServer(sql: Sql, props: Props) {
     server.registerTool(
       'update_draft',
       {
-        description: '下書きを書き直す（送信前のものだけ）。渡した項目だけを置き換える。',
+        description:
+          'エージェントが作った下書きを書き直す（送信前のものだけ。本人が Web で書いた下書きは変えられない）。渡した項目だけを置き換える。',
         inputSchema: {
           draft_id: z.string().regex(/^\d+$/),
           to: addrList,
@@ -387,7 +389,7 @@ function createServer(sql: Sql, props: Props) {
       },
       async (a) => {
         requireScope('mail.triage')
-        const draft = await updateDraft(sql, a.draft_id, a)
+        const draft = await updateDraft(sql, a.draft_id, a, `mcp:${props.clientName}`)
         return json({ draft, openInMailhub: draftLink(draft.id) })
       },
     )
@@ -408,13 +410,13 @@ function createServer(sql: Sql, props: Props) {
     server.registerTool(
       'delete_draft',
       {
-        description: '下書きを消す（送信前のものだけ）。',
+        description: 'エージェントが作った下書きを消す（送信前のものだけ。本人が Web で書いた下書きは消せない）。',
         inputSchema: { draft_id: z.string().regex(/^\d+$/) },
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       },
       async (a) => {
         requireScope('mail.triage')
-        await deleteDraft(sql, a.draft_id)
+        await deleteDraft(sql, a.draft_id, `mcp:${props.clientName}`)
         return json({ deleted: a.draft_id })
       },
     )
@@ -512,12 +514,27 @@ const oauth = new OAuthProvider({
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // 常駐エージェント向け（Access の Service Token で守る）。OAuthProvider の外で、Access の JWT を検証して通す
-    if (new URL(request.url).pathname === SVC_ROUTE) {
+    const url = new URL(request.url)
+    if (url.pathname === SVC_ROUTE) {
       const props = await authorizeService(request, env)
       if (props instanceof Response) return props
       return serveMcp(request, env, ctx, props, SVC_ROUTE)
     }
     // OAuthProvider は env に OAUTH_PROVIDER を足して defaultHandler に渡す。受け取る型はそれを含むので合わせる
+    // クライアント登録は誰でもできるので、戻り先を claude.ai・ローカル・mailhub 自身に限る（同意画面を使ったフィッシング対策）
+    if (url.pathname === '/register' && request.method === 'POST') {
+      const body = (await request
+        .clone()
+        .json()
+        .catch(() => null)) as { redirect_uris?: unknown } | null
+      const uris = Array.isArray(body?.redirect_uris) ? body.redirect_uris : []
+      if (uris.length === 0 || !uris.every((u) => typeof u === 'string' && isAllowedRedirect(u, url.origin))) {
+        return Response.json(
+          { error: 'invalid_redirect_uri', error_description: 'この戻り先は登録できません' },
+          { status: 400 },
+        )
+      }
+    }
     return oauth.fetch(request, env as Parameters<typeof oauth.fetch>[1], ctx)
   },
 }

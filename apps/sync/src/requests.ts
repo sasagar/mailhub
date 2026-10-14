@@ -40,6 +40,12 @@ export async function runRequest(sql: Sql, accounts: Account[], id: string, log:
     log(`依頼 #${id} ${req.kind}: ${Date.now() - started} ms`)
   } catch (err) {
     await sql`update requests set status = 'failed', error = ${(err as Error).message}, finished_at = now() where id = ${id}`
+    // 送信待ちのまま残すと、変更も再送もできなくなる
+    if (req.kind === 'send') {
+      const { draftId } = req.params as { draftId: number }
+      await sql`update drafts set status = 'failed', error = ${(err as Error).message}
+        where id = ${Number(draftId)} and status = 'queued'`
+    }
     log(`依頼 #${id} ${req.kind} 失敗: ${(err as Error).message}`)
   }
   await sql`delete from requests where created_at < now() - make_interval(hours => ${KEEP_HOURS})`

@@ -43,6 +43,9 @@ const enqueueRequest = (id: string) => {
 }
 await sql`update requests set status = 'failed', error = '同期デーモンが止まっていました', finished_at = now()
   where status in ('queued', 'running')`
+// 送信待ちのまま止まった下書きは、もう一度送れるように失敗にする
+await sql`update drafts set status = 'failed', error = '同期デーモンが止まっていたため送信していません'
+  where status = 'queued'`
 await sql.listen('mailhub_requests', (payload) => enqueueRequest(payload))
 
 const shutdown = async () => {

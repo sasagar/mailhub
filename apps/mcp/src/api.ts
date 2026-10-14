@@ -203,17 +203,19 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       )
     }
     if (!d.id) throw new HttpError(400, 'id を指定してください')
-    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d))
+    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d, `web:${props.clientName}`))
     if (request.method === 'DELETE') {
-      await deleteDraft(sql, d.id)
+      await deleteDraft(sql, d.id, `web:${props.clientName}`)
       return json({ deleted: d.id })
     }
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}send`) {
     need('mail.send')
-    const body = z.object({ id: numericId }).safeParse(await request.json().catch(() => null))
-    if (!body.success) throw new HttpError(400, 'id を指定してください')
-    return json(await sendDraftNow(sql, body.data.id, `web:${props.clientName}`))
+    const body = z
+      .object({ id: numericId, version: z.number().int().positive() })
+      .safeParse(await request.json().catch(() => null))
+    if (!body.success) throw new HttpError(400, 'id と version を指定してください')
+    return json(await sendDraftNow(sql, body.data.id, body.data.version, `web:${props.clientName}`))
   }
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}operations`) {
     need('mail.read')

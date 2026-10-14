@@ -34,6 +34,8 @@ export function Compose(props: {
   onError: (err: unknown) => void
 }) {
   const [id, setId] = useState<string | null>(null)
+  // 最後に読み込んだ・保存した下書き。送信のときに版（version）を渡し、表示と違う内容が送られないようにする
+  const [draft, setDraft] = useState<Draft | null>(null)
   const [fields, setFields] = useState<Fields | null>(null)
   const [saved, setSaved] = useState<Fields | null>(null)
   const [status, setStatus] = useState<'idle' | 'saving' | 'sending'>('idle')
@@ -68,6 +70,7 @@ export function Compose(props: {
     load
       .then((d) => {
         setId(d.id)
+        setDraft(d)
         setFields(fieldsOf(d))
         setSaved(fieldsOf(d))
         setShowCc(d.cc.length + d.bcc.length > 0)
@@ -85,7 +88,7 @@ export function Compose(props: {
 
   const dirty = fields != null && JSON.stringify(fields) !== JSON.stringify(saved)
 
-  const save = async (): Promise<string | null> => {
+  const save = async (): Promise<Draft | null> => {
     if (!fields) return null
     setStatus('saving')
     setError(null)
@@ -102,8 +105,9 @@ export function Compose(props: {
         ? await api<Draft>('/mcp/api/drafts', { method: 'PATCH', body: JSON.stringify({ id, ...payload }) })
         : await api<Draft>('/mcp/api/drafts', { method: 'POST', body: JSON.stringify(payload) })
       setId(d.id)
+      setDraft(d)
       setSaved(fieldsOf(d))
-      return d.id
+      return d
     } catch (err) {
       fail(err)
       return null
@@ -119,11 +123,14 @@ export function Compose(props: {
       return
     }
     setArmed(false)
-    const draftId = dirty || !id ? await save() : id
-    if (!draftId) return
+    const target = dirty || !draft ? await save() : draft
+    if (!target) return
     setStatus('sending')
     try {
-      const d = await api<Draft>('/mcp/api/send', { method: 'POST', body: JSON.stringify({ id: draftId }) })
+      const d = await api<Draft>('/mcp/api/send', {
+        method: 'POST',
+        body: JSON.stringify({ id: target.id, version: target.version }),
+      })
       props.onSent(d)
     } catch (err) {
       fail(err)
@@ -170,6 +177,17 @@ export function Compose(props: {
           </p>
         )}
         {error && <p className="notice error">{error}</p>}
+        {draft?.agentTouched && (
+          <p className="notice agent-draft">
+            エージェントが作成・変更した下書きです（{draft.updatedBy ?? draft.createdBy}
+            ）。送る前に宛先・BCC・本文を確かめてください。
+          </p>
+        )}
+        {draft?.warnings.map((w) => (
+          <p key={w} className="notice error">
+            {w}
+          </p>
+        ))}
         {fields && (
           <form className="compose-form" onSubmit={(e) => e.preventDefault()}>
             <label>
@@ -214,6 +232,24 @@ export function Compose(props: {
             </label>
             <textarea ref={body} value={fields.body} onChange={set('body')} rows={14} aria-label="本文" />
 
+            {armed && (
+              <dl className="send-summary" aria-live="polite">
+                <dt>宛先</dt>
+                <dd>{fields.to || 'なし'}</dd>
+                {fields.cc.trim() && (
+                  <>
+                    <dt>CC</dt>
+                    <dd>{fields.cc}</dd>
+                  </>
+                )}
+                {fields.bcc.trim() && (
+                  <>
+                    <dt>BCC</dt>
+                    <dd className="bcc">{fields.bcc}</dd>
+                  </>
+                )}
+              </dl>
+            )}
             <div className="compose-actions">
               <button type="button" className="quiet danger" disabled={busy} onClick={() => void remove()}>
                 {id ? '下書きを削除' : '破棄'}

@@ -83,9 +83,13 @@ export type Draft = {
   body: string
   replyToMessageId: string | null
   inReplyTo: string | null
-  status: 'draft' | 'sending' | 'sent' | 'failed'
+  status: 'draft' | 'queued' | 'sending' | 'sent' | 'failed'
   error: string | null
   createdBy: string
+  updatedBy: string | null
+  agentTouched: boolean
+  version: number
+  warnings: string[]
   updatedAt: string
   sentAt: string | null
 }

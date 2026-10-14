@@ -1,5 +1,6 @@
 import type { ClientInfo } from '@cloudflare/workers-oauth-provider'
 import { SCOPES, type Scope } from '../scopes.ts'
+import { isAllowedRedirect, redirectLabel } from './redirects.ts'
 
 export function escapeHtml(text: string): string {
   return text
@@ -31,13 +32,22 @@ export function renderConsent(opts: {
   requested: Scope[]
   // 送信の権限を与えてよいクライアントか（mailhub の Web 画面だけ）
   canSend: boolean
+  // 今回、認可コードを返す先。登録済みの一覧ではなく、実際に使う 1 件を見せる
+  redirectUri: string
+  origin: string
 }): string {
   const name = escapeHtml(opts.client?.clientName || opts.client?.clientId || '不明なクライアント')
-  const redirects = (opts.client?.redirectUris ?? []).map((u) => `<li><code>${escapeHtml(u)}</code></li>`).join('')
+  const trusted = isAllowedRedirect(opts.redirectUri, opts.origin)
+  const destination = `<p class="dest${trusted ? '' : ' warn'}">許可すると <b>${escapeHtml(
+    redirectLabel(opts.redirectUri, opts.origin),
+  )}</b> にアクセス権が渡ります<br><code>${escapeHtml(opts.redirectUri)}</code></p>${
+    trusted ? '' : '<p class="warn">見覚えのない戻り先です。心当たりが無ければ許可しないでください。</p>'
+  }`
   const items = (Object.entries(SCOPES) as [Scope, (typeof SCOPES)[Scope]][])
     .map(([scope, s]) => {
       const allowed = s.available && (scope !== 'mail.send' || opts.canSend)
-      const checked = s.required || (allowed && (opts.requested.length === 0 || opts.requested.includes(scope)))
+      // 書き込みの権限は、クライアントが求めたときだけ最初から選んでおく（何も求めていなければ読み取りだけ）
+      const checked = s.required || (allowed && opts.requested.includes(scope))
       const disabled = s.required || !allowed
       return `<label class="${disabled ? 'off' : ''}">
         <input type="checkbox" name="scope" value="${scope}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
@@ -55,10 +65,12 @@ export function renderConsent(opts: {
   label.off { opacity: .6; } label span { opacity: .75; font-size: .9em; }
   button { font-size: 1rem; padding: .6rem 1.4rem; border-radius: .5rem; border: 0; background: #2563eb; color: #fff; }
   code { font-size: .85em; word-break: break-all; }
+  .dest { font-size: 1.1em; padding: .6rem .8rem; border-radius: .5rem; background: #2563eb18; }
+  .dest b { font-size: 1.15em; } .warn { color: #dc2626; font-weight: 600; } .dest.warn { background: #dc262618; }
 </style></head><body>
 <h1>mailhub へのアクセス許可</h1>
 <p><b>${name}</b> が、あなたのメールへのアクセスを求めています。</p>
-<p>許可すると、次の宛先に戻ります:</p><ul>${redirects || '<li>（未登録）</li>'}</ul>
+${destination}
 <form method="post" action="/authorize">
   <input type="hidden" name="csrf_token" value="${opts.csrfToken}">
   ${items}

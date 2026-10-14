@@ -1,6 +1,7 @@
 import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provider'
 import { isScope, SCOPES, type Props, type Scope } from '../scopes.ts'
 import { IMAGE_PREFIX, serveImage } from '../images.ts'
+import { isAllowedRedirect } from './redirects.ts'
 import { renderConsent, securityHeaders } from './html.ts'
 import { authorizeUrl, createPkce, exchangeCode, sha256, verifyIdToken } from './upstream.ts'
 
@@ -91,6 +92,10 @@ export const authHandler = {
 async function showConsent(request: Request, env: AuthEnv) {
   const oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request)
   if (!oauthReqInfo.clientId) throw new Error('client_id がありません')
+  // 登録の時点でも絞っているが、絞る前に登録されたクライアントもあるので、使う時点でも確かめる
+  if (!isAllowedRedirect(oauthReqInfo.redirectUri, new URL(request.url).origin)) {
+    throw new Error('この戻り先には許可を出せません')
+  }
   const client = await env.OAUTH_PROVIDER.lookupClient(oauthReqInfo.clientId)
 
   // 認可リクエストはフォームで往復させず KV に置く（POST で書き換えられないように）
@@ -104,6 +109,8 @@ async function showConsent(request: Request, env: AuthEnv) {
     csrfToken,
     requested: oauthReqInfo.scope.filter(isScope),
     canSend: isWebApp(request, oauthReqInfo),
+    redirectUri: oauthReqInfo.redirectUri,
+    origin: new URL(request.url).origin,
   })
   return new Response(html, {
     headers: securityHeaders([new URL(env.ACCESS_AUTHORIZATION_URL).origin], {

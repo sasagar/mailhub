@@ -1341,3 +1341,27 @@ html.sheet-open body {
 .job.failed {
   pointer-events: auto;
 }
+/* 下書きの確認: エージェントが作った・変えた下書きの帯と、送信前の宛先の要約 */
+.notice.agent-draft {
+  border-left: 3px solid var(--ai);
+}
+.send-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ai-wash);
+  font-size: 13px;
+}
+.send-summary dt {
+  color: var(--ink-soft);
+}
+.send-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.send-summary .bcc {
+  font-weight: 700;
+}

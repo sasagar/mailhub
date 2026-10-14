@@ -29,12 +29,12 @@ async function smtpAuth(account: Account) {
 }
 
 export async function sendDraft(sql: Sql, account: Account, draftId: number): Promise<{ messageId: string }> {
-  // 二重送信を防ぐため、下書き（または失敗したもの）だけを送信中にする
+  // Worker が版を確かめて queued にした下書きだけを送る（二重送信も、確認後のすり替えも防ぐ）
   const [d] = await sql`
     update drafts set status = 'sending', error = null, updated_at = now()
-    where id = ${draftId} and account_id = ${account.id} and status in ('draft', 'failed')
+    where id = ${draftId} and account_id = ${account.id} and status = 'queued'
     returning *`
-  if (!d) throw new Error('送れる状態の下書きがありません（送信中か送信済み）')
+  if (!d) throw new Error('送信待ちの下書きがありません（送信中か送信済み）')
   try {
     if (!account.smtpHost || !account.smtpPort) throw new Error(`${account.email} の SMTP の設定がありません`)
     const to = d.to_addrs as Addr[]
@@ -71,6 +71,9 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
       host: account.smtpHost,
       port: account.smtpPort,
       secure: account.smtpPort === 465,
+      // 465 以外（587 など）は STARTTLS を必須にする。経路上で STARTTLS を消されると、
+      // nodemailer は平文のまま AUTH に進み、アプリパスワードが平文で流れるため
+      requireTLS: account.smtpPort !== 465,
       auth: await smtpAuth(account),
     })
     await transport.sendMail({

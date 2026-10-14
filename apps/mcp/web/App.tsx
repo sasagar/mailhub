@@ -1049,8 +1049,8 @@ function Drafts(props: { version: number; onOpen: (id: string) => void; onError:
   return (
     <ol className="timeline">
       {drafts.map((d) => {
-        const to = d.to.map((a) => a.name || a.address).join(', ')
-        const byAgent = d.createdBy.startsWith('mcp:')
+        // 宛先は表示名ではなくアドレスで見せる（表示名は相手やエージェントが自由に付けられ、偽装に使える）
+        const to = d.to.map((a) => a.address).join(', ')
         return (
           <li key={d.id}>
             <div className="msg-row">
@@ -1062,7 +1062,11 @@ function Drafts(props: { version: number; onOpen: (id: string) => void; onError:
                 </span>
                 <span className="subject">
                   {d.status === 'failed' && <span className="badge failed">送信失敗</span>}
-                  {byAgent && <span className="badge">{d.createdBy.slice(4)} が作成</span>}
+                  {d.status === 'queued' && <span className="badge">送信待ち</span>}
+                  {d.agentTouched && (
+                    <span className="badge">{(d.updatedBy ?? d.createdBy).replace(/^mcp:/, '')} が作成・変更</span>
+                  )}
+                  {d.warnings.length > 0 && <span className="badge failed">宛先を確認</span>}
                   {d.subject || '（件名なし）'}
                 </span>
               </button>
