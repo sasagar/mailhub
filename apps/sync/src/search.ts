@@ -23,7 +23,6 @@ export type SearchHit = {
 type Log = (msg: string) => void
 
 // 古い依頼は消す（結果は一時的なもの）
-const KEEP_HOURS = 24
 
 export async function runSearchRequest(sql: Sql, accounts: Account[], id: string, log: Log): Promise<void> {
   const [req] = await sql`
@@ -55,7 +54,6 @@ export async function runSearchRequest(sql: Sql, accounts: Account[], id: string
     await sql`update search_requests set status = 'failed', error = ${(err as Error).message}, finished_at = now() where id = ${id}`
     log(`検索 #${id} 失敗: ${(err as Error).message}`)
   }
-  await sql`delete from search_requests where created_at < now() - make_interval(hours => ${KEEP_HOURS})`
 }
 
 async function searchAccount(sql: Sql, account: Account, query: string, max: number) {

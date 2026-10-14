@@ -30,6 +30,9 @@ export async function syncMailbox(sql: Sql, client: ImapFlow, accountId: number,
   if (plan.kind === 'full') {
     log(`${box.path}: 全件取り込み (uidValidity=${server.uidValidity})`)
     await sql`delete from messages where mailbox_id = ${box.id}`
+    // UID が振り直されたので、UID で引く本文・添付の一時保存も捨てる（別のメールの本文を返さないように）
+    await sql`delete from message_bodies where account_id = ${accountId} and mailbox = ${box.path}`
+    await sql`delete from attachment_blobs where account_id = ${accountId} and mailbox = ${box.path}`
     const n = await fetchMessages(sql, client, accountId, box.id, '1:*')
     log(`${box.path}: ${n} 通`)
   } else {

@@ -7,18 +7,25 @@ import { sendDraft } from './send.ts'
 
 type Log = (msg: string) => void
 
-const KEEP_HOURS = 24
-
 export async function runRequest(sql: Sql, accounts: Account[], id: string, log: Log): Promise<void> {
   const [req] = await sql`
     update requests set status = 'running'
     where id = ${id} and status = 'queued'
-    returning kind, account_id, params`
+    returning kind, account_id, params, requested_by`
   if (!req) return
   const started = Date.now()
   try {
     const account = accounts.find((a) => a.id === req.account_id)
     if (!account) throw new Error('アカウントが見つかりません（無効になっている可能性）')
+    // フォルダ名は Worker から来る。このアカウントに実在するフォルダだけを開く
+    if (req.kind !== 'send') {
+      const { mailbox } = req.params as { mailbox?: unknown }
+      const [box] =
+        typeof mailbox === 'string'
+          ? await sql`select 1 from mailboxes where account_id = ${account.id} and path = ${mailbox}`
+          : []
+      if (!box) throw new Error('このアカウントにそのフォルダはありません')
+    }
     if (req.kind === 'fetch_body') {
       const { mailbox, uid } = req.params as { mailbox: string; uid: number }
       await fetchBody(sql, account, { mailbox, uid: Number(uid) })
@@ -30,6 +37,8 @@ export async function runRequest(sql: Sql, accounts: Account[], id: string, log:
       const thread = await fetchThread(sql, account, { mailbox, uid: Number(uid) })
       await sql`update requests set result = ${sql.json(thread)} where id = ${id}`
     } else if (req.kind === 'send') {
+      // 送信は本人が Web 画面から頼んだものだけ（Worker 側の確認に加えた二重の守り）
+      if (!String(req.requested_by).startsWith('web:')) throw new Error('送信は Web 画面からだけ受け付けます')
       const { draftId } = req.params as { draftId: number }
       const sent = await sendDraft(sql, account, Number(draftId))
       await sql`update requests set result = ${sql.json(sent)} where id = ${id}`
@@ -48,5 +57,4 @@ export async function runRequest(sql: Sql, accounts: Account[], id: string, log:
     }
     log(`依頼 #${id} ${req.kind} 失敗: ${(err as Error).message}`)
   }
-  await sql`delete from requests where created_at < now() - make_interval(hours => ${KEEP_HOURS})`
 }

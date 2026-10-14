@@ -2,6 +2,7 @@ import { createSql } from '@mailhub/db'
 import { migrate } from '@mailhub/db/migrate'
 import { loadAccounts } from './accounts.ts'
 import { loadConfig } from './config.ts'
+import { purgeExpired } from './cleanup.ts'
 import { runRequest } from './requests.ts'
 import { runSearchRequest } from './search.ts'
 import { AccountSync } from './sync/account.ts'
@@ -48,7 +49,13 @@ await sql`update drafts set status = 'failed', error = '同期デーモンが止
   where status = 'queued'`
 await sql.listen('mailhub_requests', (payload) => enqueueRequest(payload))
 
+// 期限を過ぎた一時データを、起動時と 10 分ごとに消す
+const purge = () => purgeExpired(sql).catch((err: Error) => log(`一時データの掃除に失敗: ${err.message}`))
+await purge()
+const purgeTimer = setInterval(() => void purge(), 10 * 60_000)
+
 const shutdown = async () => {
+  clearInterval(purgeTimer)
   console.log('停止中…')
   await Promise.all(workers.map((w) => w.stop()))
   await Promise.allSettled(runs)

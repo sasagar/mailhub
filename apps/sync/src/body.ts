@@ -6,7 +6,6 @@ import { sideConnection } from './imap/side.ts'
 
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024
 const INLINE_IMAGE_MAX_BYTES = 1024 * 1024
-const KEEP_DAYS = 7
 
 type Addr = { name: string | null; address: string | null }
 
@@ -80,8 +79,6 @@ async function loadSource(account: Account, loc: BodyLocator): Promise<Buffer> {
   })
 }
 
-const ATTACHMENT_KEEP_MINUTES = 60
-
 // 添付ファイルを 1 つ取り出して attachment_blobs に置く。番号は本文の取得で返した attachments[].index と同じ
 // （postal-mime の attachments の並び順）
 export async function fetchAttachment(sql: Sql, account: Account, loc: BodyLocator, index: number): Promise<void> {
@@ -105,7 +102,6 @@ export async function fetchAttachment(sql: Sql, account: Account, loc: BodyLocat
       })}
       on conflict do nothing`
   }
-  await sql`delete from attachment_blobs where created_at < now() - make_interval(mins => ${ATTACHMENT_KEEP_MINUTES})`
 }
 
 export async function fetchBody(sql: Sql, account: Account, loc: BodyLocator): Promise<void> {
@@ -152,5 +148,4 @@ export async function fetchBody(sql: Sql, account: Account, loc: BodyLocator): P
       attachments: sql.json(attachments),
     })}
     on conflict (account_id, mailbox, uid) do nothing`
-  await sql`delete from message_bodies where fetched_at < now() - make_interval(days => ${KEEP_DAYS})`
 }
