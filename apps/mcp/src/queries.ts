@@ -114,6 +114,24 @@ export async function senderSummary(sql: Sql, opts: { account?: string; limit: n
   }))
 }
 
+// エージェント（MCP）がメールを動かす・既読にする操作の上限（全エージェント合計、直近 1 時間）。
+// 1 回あたりの上限（500 通）だけだと、何度も呼べば受信トレイを丸ごと動かせるため。
+// 手で頼む大きめの片付けは通り、乗っ取られて繰り返し呼ばれる使い方は止まる程度にする。Web 画面からの操作は数えない
+export const AGENT_HOURLY_LIMIT = 3000
+
+async function assertAgentBudget(sql: Sql, requestedBy: string, adding: number) {
+  if (!requestedBy.startsWith('mcp:') || adding === 0) return
+  const [{ used }] = (await sql`
+    select coalesce(sum(cardinality(uids)), 0)::int as used from operations
+    where requested_by like 'mcp:%' and created_at > now() - interval '1 hour'`) as unknown as [{ used: number }]
+  if (used + adding > AGENT_HOURLY_LIMIT) {
+    throw new UserError(
+      `エージェントからの操作は 1 時間に ${AGENT_HOURLY_LIMIT} 通までです（直近 1 時間で ${used} 通、今回 ${adding} 通）。` +
+        '時間をおくか、本人が Web 画面で操作してください',
+    )
+  }
+}
+
 // 移動の操作。archive と spam は受信トレイから、not_spam は迷惑メールフォルダ（から受信トレイへ）
 // delete は移動ではないが、迷惑メールフォルダから同じ形で積む（Web 画面からだけ）
 export type MoveAction = 'archive' | 'spam' | 'not_spam' | 'delete'
@@ -135,6 +153,7 @@ export async function enqueueArchive(
     where m.id = any(${bigints(sql, ids)})`
   const found = new Set(rows.map((r) => String(r.id)))
   const notFound = ids.filter((id) => !found.has(id))
+  await assertAgentBudget(sql, opts.requestedBy, rows.length)
 
   const groups = Map.groupBy(rows, (r) => `${r.account_id}:${r.mailbox_id}`)
   const operations = await sql.begin(async (tx) => {
@@ -376,6 +395,7 @@ export async function enqueueMarkSeen(sql: Sql, opts: { messageIds: string[]; re
     select m.account_id, m.mailbox_id, m.uid
     from messages m join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
     where m.id = any(${bigints(sql, opts.messageIds)}) and not ('\\Seen' = any(m.flags))`
+  await assertAgentBudget(sql, opts.requestedBy, rows.length)
   const groups = Map.groupBy(rows, (r) => `${r.account_id}:${r.mailbox_id}`)
   const ids: string[] = []
   for (const list of groups.values()) {
