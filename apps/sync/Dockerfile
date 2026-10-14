@@ -1,4 +1,5 @@
-FROM node:24-slim
+# ベースイメージはダイジェストで固定する（タグの付け替えで中身が変わらないように）。更新するときはダイジェストごと差し替える
+FROM node:24-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

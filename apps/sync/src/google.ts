@@ -5,11 +5,13 @@ const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 export const GMAIL_SCOPE = 'https://mail.google.com/'
 
+import { secret } from './config.ts'
+
 export type GoogleClient = { clientId: string; clientSecret: string }
 
 export function loadGoogleClient(): GoogleClient | null {
-  const clientId = process.env.GOOGLE_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+  const clientId = secret('GOOGLE_CLIENT_ID')
+  const clientSecret = secret('GOOGLE_CLIENT_SECRET')
   return clientId && clientSecret ? { clientId, clientSecret } : null
 }
 

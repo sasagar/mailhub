@@ -62,7 +62,7 @@ try {
       smtp_host: smtpHost || null,
       smtp_port: smtpHost ? smtpPort : null,
       username,
-      secret: encryptSecret(password, config.masterKey),
+      secret: encryptSecret(password, config.masterKey, email),
     })}`
   console.log(`${email} を追加しました`)
 } finally {

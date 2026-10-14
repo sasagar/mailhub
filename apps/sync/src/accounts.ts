@@ -1,5 +1,5 @@
 import type { Sql } from '@mailhub/db'
-import { decryptSecret } from './crypto.ts'
+import { decryptSecret, encryptSecret, isLegacySecret } from './crypto.ts'
 
 export type Provider = 'gmail' | 'icloud' | 'generic'
 
@@ -33,6 +33,13 @@ export async function loadAccounts(sql: Sql, key: Buffer): Promise<Account[]> {
   const rows = await sql`
     select id, label, from_name, email, provider, imap_host, imap_port, smtp_host, smtp_port, username, auth_type, secret
     from accounts where enabled order by id`
+  // 古い形式（AAD なし）の暗号文は、読めたら新しい形式で書き直す
+  for (const r of rows) {
+    if (!isLegacySecret(r.secret)) continue
+    const upgraded = encryptSecret(decryptSecret(r.secret, key, r.email), key, r.email)
+    await sql`update accounts set secret = ${upgraded} where id = ${r.id} and secret = ${r.secret}`
+    r.secret = upgraded
+  }
   return rows.map((r) => ({
     id: r.id,
     label: r.label,
@@ -45,6 +52,6 @@ export async function loadAccounts(sql: Sql, key: Buffer): Promise<Account[]> {
     smtpPort: r.smtp_port,
     username: r.username,
     authType: r.auth_type,
-    secret: decryptSecret(r.secret, key),
+    secret: decryptSecret(r.secret, key, r.email),
   }))
 }

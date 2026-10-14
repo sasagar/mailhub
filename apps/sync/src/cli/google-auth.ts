@@ -107,7 +107,7 @@ console.log('IMAP ログイン成功（OAuth）')
 
 const sql = createSql(config.databaseUrl, { max: 1 })
 try {
-  const secret = encryptSecret(tokens.refreshToken, config.masterKey)
+  const secret = encryptSecret(tokens.refreshToken, config.masterKey, email)
   const [row] = await sql`
     insert into accounts ${sql({
       label: values.label ?? email,

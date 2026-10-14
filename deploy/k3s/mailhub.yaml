@@ -57,6 +57,11 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: sakura
+      # k8s の API は使わないので、サービスアカウントのトークンを Pod に入れない
+      automountServiceAccountToken: false
+      # Secret のファイルを、コンテナのユーザー（1000）がグループとして読めるようにする
+      securityContext:
+        fsGroup: 1000
       terminationGracePeriodSeconds: 30
       containers:
         - name: sync
@@ -73,9 +78,15 @@ spec:
               value: mailhub
             - name: TZ
               value: Asia/Tokyo
-          envFrom:
-            - secretRef:
-                name: mailhub-secret # PGPASSWORD, MAILHUB_MASTER_KEY
+            # 秘密の値は環境変数ではなくファイルで渡す（/proc/<pid>/environ から読まれないように）
+            - name: PGPASSWORD_FILE
+              value: /run/secrets/mailhub/PGPASSWORD
+            - name: MAILHUB_MASTER_KEY_FILE
+              value: /run/secrets/mailhub/MAILHUB_MASTER_KEY
+            - name: GOOGLE_CLIENT_ID_FILE
+              value: /run/secrets/mailhub/GOOGLE_CLIENT_ID
+            - name: GOOGLE_CLIENT_SECRET_FILE
+              value: /run/secrets/mailhub/GOOGLE_CLIENT_SECRET
           resources:
             requests:
               memory: 128Mi
@@ -91,9 +102,18 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: secret
+              mountPath: /run/secrets/mailhub
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: secret
+          secret:
+            secretName: mailhub-secret # PGPASSWORD, MAILHUB_MASTER_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+            defaultMode: 0440
