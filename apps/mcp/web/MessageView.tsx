@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, apiBlob, LoggedOut } from './auth.ts'
-import { n, senderName, when } from './format.ts'
+import { fmtSize, n, senderName, when } from './format.ts'
 import type { Addr, MessageBody, MessageRef, ThreadItem } from './types.ts'
 
 const fmtDate = (iso: string | null) =>
@@ -14,8 +14,6 @@ const fmtDate = (iso: string | null) =>
       })
     : ''
 const fmtAddrs = (list: Addr[]) => list.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ')
-const fmtSize = (bytes: number) =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 
 // HTML メールを隔離した枠で見せるための文書。スクリプトは動かさない（sandbox に allow-scripts を付けない）。
 // 外部画像は常に読み込む（2026-10-02 ユーザー判断）。ただし API が画像の URL を mailhub の画像プロキシに

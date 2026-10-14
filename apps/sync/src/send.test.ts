@@ -34,3 +34,22 @@ describe('composeMessage', () => {
     expect(raw).toMatch(/^Subject: =\?UTF-8\?/im)
   })
 })
+
+describe('composeMessage の添付', () => {
+  it('ファイル名が日本語の添付を付ける', async () => {
+    const raw = (
+      await composeMessage(
+        {
+          ...options,
+          attachments: [{ filename: '見積書.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF-1.4') }],
+        },
+        false,
+      )
+    ).toString()
+    expect(raw).toMatch(/^Content-Type: multipart\/mixed/im)
+    expect(raw).toMatch(/Content-Type: application\/pdf/i)
+    expect(raw).toContain(Buffer.from('%PDF-1.4').toString('base64'))
+    // 日本語のファイル名は RFC 2231 などでエンコードされる
+    expect(raw).toMatch(/^Content-Disposition: attachment;\s+filename/im)
+  })
+})

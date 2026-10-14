@@ -1088,6 +1088,38 @@ html.sheet-open body {
   color: var(--ink-faint);
   font-size: 12px;
 }
+/* 作成画面の添付。一覧の下に「ファイルを添付」を置く */
+.compose-attachments {
+  margin-top: 0;
+  padding: 4px 14px 0;
+  display: grid;
+  gap: 8px;
+}
+.compose-attachments ul .link-button {
+  flex: none;
+  margin: 0;
+}
+.compose-attachments .danger {
+  color: var(--alert);
+}
+.compose-attachments li {
+  align-items: center;
+}
+.compose-attachments .att-name {
+  flex: 1;
+  min-width: 0;
+}
+.attach-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+  cursor: pointer;
+}
+.attach-button[aria-disabled='true'] {
+  opacity: 0.5;
+  pointer-events: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .sheet {
     animation: none;

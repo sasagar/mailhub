@@ -26,3 +26,6 @@ export function avatarHue(key: string): number {
 export function initial(name: string): string {
   return (/[\p{L}\p{N}]/u.exec(name)?.[0] ?? '?').toUpperCase()
 }
+
+export const fmtSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`

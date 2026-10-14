@@ -91,10 +91,12 @@ let drafts: Draft[] = [
     agentTouched: true,
     version: 1,
     warnings: [],
+    attachments: [{ id: '1', filename: '打ち合わせ資料.pdf', mimeType: 'application/pdf', size: 240_000 }],
     updatedAt: new Date().toISOString(),
     sentAt: null,
   },
 ]
+let attachmentSeq = 10
 
 type Pending = { started: number; count: number; senders: string[] }
 const ops = new Map<string, Pending>()
@@ -235,6 +237,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
         agentTouched: false,
         version: 1,
         warnings: [],
+        attachments: [],
         updatedAt: new Date().toISOString(),
         sentAt: null,
       }
@@ -254,6 +257,19 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
     }
     drafts = drafts.filter((x) => x.id !== target)
     return { deleted: target } as T
+  }
+  if (tail === 'draft-attachments') {
+    const d = drafts.find((x) => x.id === url.searchParams.get('draft'))!
+    if (init.method === 'POST') {
+      const size = init.body instanceof Blob ? init.body.size : 0
+      const type = new Headers(init.headers).get('Content-Type') ?? 'application/octet-stream'
+      const filename = url.searchParams.get('filename') ?? 'attachment'
+      d.attachments = [...d.attachments, { id: String(attachmentSeq++), filename, mimeType: type, size }]
+    } else {
+      d.attachments = d.attachments.filter((a) => a.id !== url.searchParams.get('id'))
+    }
+    d.version++
+    return d as T
   }
   if (tail === 'send') {
     await new Promise((r) => setTimeout(r, 1500))

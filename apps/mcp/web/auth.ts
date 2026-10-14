@@ -154,7 +154,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const send = () => {
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${memory.accessToken ?? ''}`)
-    headers.set('Content-Type', 'application/json')
+    // 添付ファイルを送るときは、呼び出し側がファイルの種類を付ける
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
     return fetch(path, { ...init, headers })
   }
   let res = await send()

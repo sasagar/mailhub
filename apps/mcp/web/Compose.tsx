@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, login, LoggedOut } from './auth.ts'
+import { fmtSize } from './format.ts'
 import type { Account, ComposeTarget, Draft, DraftAddr } from './types.ts'
 
 const joinAddrs = (list: DraftAddr[]) => list.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ')
@@ -13,6 +14,9 @@ const identitiesOf = (accounts: Account[]): Identity[] =>
     { address: a.account, account: a.account, label: a.label, fromName: a.fromName },
     ...a.aliases.map((l) => ({ address: l.address, account: a.account, label: a.label, fromName: l.fromName })),
   ])
+
+// サーバー側の上限と同じ（先に画面で止めて、大きなファイルを送り始めないようにする）
+const ATTACHMENT_MAX_TOTAL = 15 * 1024 * 1024
 
 const fieldsOf = (d: Draft): Fields => ({
   account: d.account,
@@ -38,7 +42,7 @@ export function Compose(props: {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [fields, setFields] = useState<Fields | null>(null)
   const [saved, setSaved] = useState<Fields | null>(null)
-  const [status, setStatus] = useState<'idle' | 'saving' | 'sending'>('idle')
+  const [status, setStatus] = useState<'idle' | 'saving' | 'sending' | 'attaching'>('idle')
   const [armed, setArmed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCc, setShowCc] = useState(false)
@@ -138,6 +142,50 @@ export function Compose(props: {
     }
   }
 
+  // 添付を付ける。下書きがまだ無いか未保存なら、先に保存して ID と最新の版を得る
+  const attach = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const list = [...files]
+    const current = draft?.attachments.reduce((sum, a) => sum + a.size, 0) ?? 0
+    if (current + list.reduce((sum, f) => sum + f.size, 0) > ATTACHMENT_MAX_TOTAL) {
+      setError(`添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
+      return
+    }
+    const base = dirty || !draft ? await save() : draft
+    if (!base) return
+    setStatus('attaching')
+    setError(null)
+    try {
+      for (const f of list) {
+        const q = new URLSearchParams({ draft: base.id, filename: f.name })
+        const d = await api<Draft>(`/mcp/api/draft-attachments?${q}`, {
+          method: 'POST',
+          headers: { 'Content-Type': f.type || 'application/octet-stream' },
+          body: f,
+        })
+        setDraft(d)
+      }
+    } catch (err) {
+      fail(err)
+    } finally {
+      setStatus('idle')
+    }
+  }
+
+  const detach = async (attachmentId: string) => {
+    if (!draft) return
+    setStatus('attaching')
+    setError(null)
+    try {
+      const q = new URLSearchParams({ draft: draft.id, id: attachmentId })
+      setDraft(await api<Draft>(`/mcp/api/draft-attachments?${q}`, { method: 'DELETE' }))
+    } catch (err) {
+      fail(err)
+    } finally {
+      setStatus('idle')
+    }
+  }
+
   const remove = async () => {
     if (id) {
       try {
@@ -167,7 +215,17 @@ export function Compose(props: {
         <button className="back" onClick={() => void (dirty ? save().then(props.onClose) : props.onClose())}>
           ‹ {dirty ? '保存して閉じる' : '閉じる'}
         </button>
-        <span className="bar-status">{status === 'saving' ? '保存中…' : dirty ? '未保存' : id ? '保存済み' : ''}</span>
+        <span className="bar-status">
+          {status === 'attaching'
+            ? '添付中…'
+            : status === 'saving'
+              ? '保存中…'
+              : dirty
+                ? '未保存'
+                : id
+                  ? '保存済み'
+                  : ''}
+        </span>
       </div>
       <div className="sheet-body">
         {!fields && !error && (
@@ -232,6 +290,47 @@ export function Compose(props: {
             </label>
             <textarea ref={body} value={fields.body} onChange={set('body')} rows={14} aria-label="本文" />
 
+            <section className="attachments compose-attachments" aria-label="添付ファイル">
+              {draft && draft.attachments.length > 0 && (
+                <ul>
+                  {draft.attachments.map((a) => (
+                    <li key={a.id}>
+                      <span className="att-name">{a.filename}</span>
+                      <span className="att-size">{fmtSize(a.size)}</span>
+                      <button
+                        type="button"
+                        className="link-button danger"
+                        disabled={busy}
+                        onClick={() => void detach(a.id)}
+                        aria-label={`${a.filename} を外す`}
+                      >
+                        外す
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <label className="link-button attach-button" aria-disabled={busy}>
+                {status === 'attaching' ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" /> 添付しています
+                  </>
+                ) : (
+                  'ファイルを添付'
+                )}
+                <input
+                  type="file"
+                  multiple
+                  hidden
+                  disabled={busy}
+                  onChange={(e) => {
+                    void attach(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </section>
+
             {armed && (
               <dl className="send-summary" aria-live="polite">
                 <dt>宛先</dt>
@@ -246,6 +345,12 @@ export function Compose(props: {
                   <>
                     <dt>BCC</dt>
                     <dd className="bcc">{fields.bcc}</dd>
+                  </>
+                )}
+                {draft && draft.attachments.length > 0 && (
+                  <>
+                    <dt>添付</dt>
+                    <dd>{draft.attachments.map((a) => a.filename).join('、')}</dd>
                   </>
                 )}
               </dl>

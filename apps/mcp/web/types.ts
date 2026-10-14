@@ -72,6 +72,7 @@ export type MessageBody = {
   attachments: { index: number; filename: string; mimeType: string; size: number }[]
 }
 export type DraftAddr = { name: string | null; address: string }
+export type DraftAttachment = { id: string; filename: string; mimeType: string; size: number }
 export type Draft = {
   id: string
   account: string
@@ -90,6 +91,7 @@ export type Draft = {
   agentTouched: boolean
   version: number
   warnings: string[]
+  attachments: DraftAttachment[]
   updatedAt: string
   sentAt: string | null
 }

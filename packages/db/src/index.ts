@@ -1,6 +1,7 @@
 import postgres from 'postgres'
 
 export type Sql = postgres.Sql
+export type TransactionSql = postgres.TransactionSql
 
 // Node（同期デーモン）と Workers（Hyperdrive 経由）の両方から使う。
 // url を省くと PGHOST / PGUSER / PGPASSWORD / PGDATABASE を読む（k3s ではこちら）。

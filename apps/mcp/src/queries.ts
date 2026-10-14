@@ -1,4 +1,4 @@
-import type { Sql } from '@mailhub/db'
+import type { Sql, TransactionSql } from '@mailhub/db'
 
 // 利用者に見せてよい理由付きの失敗（見つからない・取得に失敗した・時間切れなど）。
 // 画面の API はこれを「内部エラー」にまとめず、メッセージをそのまま返す
@@ -455,6 +455,8 @@ export function parseAddresses(input: string | string[] | undefined): Addr[] {
   })
 }
 
+export type DraftAttachment = { id: string; filename: string; mimeType: string; size: number }
+
 export type Draft = {
   id: string
   account: string
@@ -477,6 +479,7 @@ export type Draft = {
   version: number
   // 送る前に本人に確かめてほしいこと（返信元に無い宛先など）
   warnings: string[]
+  attachments: DraftAttachment[]
   updatedAt: string
   sentAt: string | null
 }
@@ -484,7 +487,10 @@ export type Draft = {
 const draftColumns = (sql: Sql) => sql`
   d.id, a.email, d.from_address, d.to_addrs, d.cc_addrs, d.bcc_addrs, d.subject, d.body_text, d.reply_to_message_id,
   d.in_reply_to, d.status, d.error, d.created_by, d.updated_by, d.agent_touched, d.version, d.reply_expected,
-  d.reply_redirected, d.updated_at, d.sent_at`
+  d.reply_redirected, d.updated_at, d.sent_at,
+  (select coalesce(json_agg(json_build_object(
+      'id', x.id::text, 'filename', x.filename, 'mimeType', x.mime_type, 'size', x.size) order by x.id), '[]')
+   from draft_attachments x where x.draft_id = d.id) as attachments`
 
 // 返信の下書きで、元のメールに無かった宛先や、返信先がすり替えられている可能性を知らせる。
 // エージェントが「返信」に見せかけて別の宛先に送らせる（元のメールを引用して持ち出す）のを、送る前に気付けるようにする
@@ -521,6 +527,7 @@ const toDraft = (r: Record<string, any>): Draft => ({
   agentTouched: r.agent_touched === true,
   version: Number(r.version),
   warnings: draftWarnings(r),
+  attachments: r.attachments ?? [],
   updatedAt: r.updated_at?.toISOString(),
   sentAt: r.sent_at?.toISOString() ?? null,
 })
@@ -722,6 +729,91 @@ export async function deleteDraft(sql: Sql, id: string, by: string): Promise<voi
         : '消せる下書きがありません（送信待ちか送信済み）',
     )
   }
+}
+
+// ---- 下書きの添付ファイル（Web 画面だけ） ----
+
+// Gmail の SMTP は 25MB まで。base64 にすると 4/3 倍になり、agentic-inbox へは JSON で渡すので、余裕を見て合計 15MB
+export const ATTACHMENT_MAX_TOTAL = 15 * 1024 * 1024
+export const ATTACHMENT_MAX_COUNT = 20
+
+// ファイル名と種類を整える。パスの区切り・制御文字・bidi の文字は落とす（受け取った側で別の拡張子に見せかけないように）
+export function normalizeAttachment(filename: string, mimeType: string | null | undefined) {
+  const name =
+    filename
+      .replace(/[\\/]/g, '_')
+      // eslint-disable-next-line no-control-regex -- 制御文字を落とすのが目的
+      .replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+      .trim()
+      .slice(0, 200) || 'attachment'
+  const type = (mimeType ?? '').split(';')[0]!.trim().toLowerCase()
+  return { filename: name, mimeType: /^[a-z0-9][\w.+-]*\/[\w.+-]+$/.test(type) ? type : 'application/octet-stream' }
+}
+
+// 添付を付け外しする前に、下書きの版を上げて行を押さえる。エージェントは自分たちが作った下書きだけ
+// （本人が書いた下書きに、受信メールの添付などを黙って足させない）
+const lockDraftForAttachment = (tx: TransactionSql, draftId: string, by: string) => {
+  const agent = by.startsWith('mcp:')
+  return tx`
+    update drafts set version = version + 1, updated_at = now(), updated_by = ${by},
+      agent_touched = agent_touched or ${agent}
+    where id = ${draftId} and status in ('draft', 'failed') ${agent ? tx`and created_by like 'mcp:%'` : tx``}
+    returning id`
+}
+const attachmentDenied = (by: string, verb: string) =>
+  by.startsWith('mcp:')
+    ? `添付を${verb}下書きがありません（送信待ち・送信済みか、本人が作った下書き）`
+    : `添付を${verb}下書きがありません（送信待ちか送信済み）`
+
+// 添付を付けて、下書きの版を上げる。送信待ち・送信済みの下書きには付けられない
+export async function addDraftAttachment(
+  sql: Sql,
+  draftId: string,
+  file: { filename: string; mimeType: string; content: Uint8Array },
+  by: string,
+): Promise<Draft> {
+  await sql.begin(async (tx) => {
+    // 下書きの行を押さえてから数える（同時に付けて上限を超えないように）
+    const [d] = await lockDraftForAttachment(tx, draftId, by)
+    if (!d) throw new UserError(attachmentDenied(by, '付けられる'))
+    const [t] = await tx`
+      select count(*)::int as n, coalesce(sum(size), 0)::bigint as total from draft_attachments where draft_id = ${draftId}`
+    if (t!.n >= ATTACHMENT_MAX_COUNT) throw new UserError(`添付は ${ATTACHMENT_MAX_COUNT} 個までです`)
+    if (Number(t!.total) + file.content.byteLength > ATTACHMENT_MAX_TOTAL) {
+      throw new UserError(`添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
+    }
+    await tx`
+      insert into draft_attachments (draft_id, filename, mime_type, size, content)
+      values (${draftId}, ${file.filename}, ${file.mimeType}, ${file.content.byteLength}, ${file.content})`
+  })
+  return getDraft(sql, draftId)
+}
+
+export async function removeDraftAttachment(
+  sql: Sql,
+  draftId: string,
+  attachmentId: string,
+  by: string,
+): Promise<Draft> {
+  await sql.begin(async (tx) => {
+    const [d] = await lockDraftForAttachment(tx, draftId, by)
+    if (!d) throw new UserError(attachmentDenied(by, '外せる'))
+    const rows =
+      await tx`delete from draft_attachments where id = ${attachmentId} and draft_id = ${draftId} returning id`
+    if (rows.length === 0) throw new UserError('添付ファイルが見つかりません')
+  })
+  return getDraft(sql, draftId)
+}
+
+export async function getDraftAttachment(
+  sql: Sql,
+  draftId: string,
+  attachmentId: string,
+): Promise<{ filename: string; mimeType: string; content: Uint8Array }> {
+  const [a] = await sql`
+    select filename, mime_type, content from draft_attachments where id = ${attachmentId} and draft_id = ${draftId}`
+  if (!a) throw new UserError('添付ファイルが見つかりません')
+  return { filename: a.filename, mimeType: a.mime_type, content: a.content }
 }
 
 // 送信を同期デーモンに頼み、結果を待つ（mail.send の権限は Web 画面だけ）

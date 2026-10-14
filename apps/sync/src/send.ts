@@ -56,6 +56,14 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
       if (!alias) throw new Error(`${d.from_address} は ${account.email} のエイリアスに登録されていません`)
       from = { name: alias.from_name, address: d.from_address }
     }
+    // 添付は Web 画面か MCP で付けたもの（付け外しのたびに版が上がるので、確かめた版の添付だけがここに来る）
+    const files = await sql`
+      select filename, mime_type, content from draft_attachments where draft_id = ${d.id} order by id`
+    const attachments = files.map((f) => ({
+      filename: f.filename as string,
+      contentType: f.mime_type as string,
+      content: Buffer.from(f.content as Uint8Array),
+    }))
     const options = {
       from,
       to: fmt(to),
@@ -66,6 +74,7 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
       date: new Date(),
       inReplyTo: d.in_reply_to ?? undefined,
       references: d.references_ ?? undefined,
+      attachments,
     }
 
     let messageId: string
@@ -81,6 +90,16 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
           ...(bcc.length ? { bcc: bcc.map((a) => a.address) } : {}),
           subject: d.subject,
           text: d.body_text,
+          ...(attachments.length
+            ? {
+                attachments: attachments.map((a) => ({
+                  content: a.content.toString('base64'),
+                  filename: a.filename,
+                  type: a.contentType,
+                  disposition: 'attachment' as const,
+                })),
+              }
+            : {}),
           ...(d.in_reply_to ? { in_reply_to: bare(d.in_reply_to) } : {}),
           ...(d.references_ ? { references: (d.references_ as string).split(/\s+/).filter(Boolean).map(bare) } : {}),
         },

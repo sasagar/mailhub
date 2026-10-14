@@ -4,8 +4,13 @@ import { z } from 'zod'
 import { createSql, type Sql } from '@mailhub/db'
 import {
   enqueueArchive,
+  addDraftAttachment,
+  ATTACHMENT_MAX_TOTAL,
   createDraft,
   deleteDraft,
+  getDraftAttachment,
+  normalizeAttachment,
+  removeDraftAttachment,
   enqueueArchiveBySenders,
   enqueueMarkSeen,
   getAttachment,
@@ -207,6 +212,43 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     if (request.method === 'DELETE') {
       await deleteDraft(sql, d.id, requester('web', props))
       return json({ deleted: d.id })
+    }
+  }
+  // 下書きの添付ファイル。付けるときは本文にファイルの中身をそのまま入れ、名前はクエリで渡す
+  if (url.pathname === `${API_PREFIX}draft-attachments`) {
+    const draftId = q.get('draft') ?? ''
+    if (!/^\d+$/.test(draftId)) throw new HttpError(400, 'draft を指定してください')
+    const attachmentId = q.get('id') ?? ''
+    if (request.method === 'GET') {
+      need('mail.read')
+      if (!/^\d+$/.test(attachmentId)) throw new HttpError(400, 'id を指定してください')
+      const a = await getDraftAttachment(sql, draftId, attachmentId)
+      return new Response(a.content, {
+        headers: {
+          'Content-Type': a.mimeType,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(a.filename)}`,
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    }
+    need('mail.triage')
+    const by = requester('web', props)
+    if (request.method === 'POST') {
+      if (Number(request.headers.get('Content-Length') ?? 0) > ATTACHMENT_MAX_TOTAL) {
+        throw new HttpError(413, `添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
+      }
+      const content = new Uint8Array(await request.arrayBuffer())
+      if (content.byteLength === 0) throw new HttpError(400, '空のファイルは付けられません')
+      if (content.byteLength > ATTACHMENT_MAX_TOTAL) {
+        throw new HttpError(413, `添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
+      }
+      const file = normalizeAttachment(q.get('filename') ?? '', request.headers.get('Content-Type'))
+      return json(await addDraftAttachment(sql, draftId, { ...file, content }, by))
+    }
+    if (request.method === 'DELETE') {
+      if (!/^\d+$/.test(attachmentId)) throw new HttpError(400, 'id を指定してください')
+      return json(await removeDraftAttachment(sql, draftId, attachmentId, by))
     }
   }
   if (request.method === 'POST' && url.pathname === `${API_PREFIX}send`) {

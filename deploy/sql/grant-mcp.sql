@@ -33,6 +33,10 @@ grant update (
 ) on drafts to mailhub_mcp;
 grant usage on sequence drafts_id_seq to mailhub_mcp;
 
+-- 下書きの添付ファイルを付け・外す（付け外しは Web 画面だけ。下書きの version も同じトランザクションで上げる）
+grant select, insert, delete on draft_attachments to mailhub_mcp;
+grant usage on sequence draft_attachments_id_seq to mailhub_mcp;
+
 -- エイリアスは読むだけ（追加・削除は同期デーモン側の CLI）
 grant select on aliases to mailhub_mcp;
 

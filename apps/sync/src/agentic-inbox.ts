@@ -48,6 +48,7 @@ export type SendPayload = {
   bcc?: string[]
   subject: string
   text: string
+  attachments?: { content: string; filename: string; type: string; disposition: 'attachment' }[]
   // <> なしの Message-ID
   in_reply_to?: string
   references?: string[]
