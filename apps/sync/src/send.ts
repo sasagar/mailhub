@@ -26,6 +26,9 @@ export function composeMessage(options: ComposeOptions, keepBcc: boolean): Promi
 let agenticInbox: AgenticInboxConfig | null | undefined
 const agenticInboxConfig = () => (agenticInbox === undefined ? (agenticInbox = loadAgenticInbox()) : agenticInbox)
 
+// apps/mcp/src/sending.ts の ATTACHMENT_LIMIT_AGENTIC と同じ
+const AGENTIC_INBOX_ATTACHMENT_LIMIT = 3.5 * 1024 * 1024
+
 const bare = (id: string) => id.replace(/^<|>$/g, '')
 
 async function smtpAuth(account: Account) {
@@ -80,6 +83,13 @@ export async function sendDraft(sql: Sql, account: Account, draftId: number): Pr
     let messageId: string
     const config = agenticInboxConfig()
     if (usesAgenticInbox(config, from.address)) {
+      // Email Service は 1 通 5 MiB まで（base64 にした添付込み）。送って拒否される前に、分かる言葉で止める
+      const total = attachments.reduce((sum, a) => sum + a.content.byteLength, 0)
+      if (total > AGENTIC_INBOX_ATTACHMENT_LIMIT) {
+        throw new Error(
+          `${from.address} から送るメールの添付は合計 3.5MB までです（今は ${(total / 1024 / 1024).toFixed(1)}MB）。添付を減らしてください`,
+        )
+      }
       // 下書きと版で鍵を作る。同じ版を送り直しても、送れていれば二重には送られない
       messageId = await sendViaAgenticInbox(
         config,

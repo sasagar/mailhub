@@ -92,6 +92,7 @@ export type Draft = {
   version: number
   warnings: string[]
   attachments: DraftAttachment[]
+  attachmentLimit: number
   updatedAt: string
   sentAt: string | null
 }

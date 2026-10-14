@@ -92,6 +92,7 @@ let drafts: Draft[] = [
     version: 1,
     warnings: [],
     attachments: [{ id: '1', filename: '打ち合わせ資料.pdf', mimeType: 'application/pdf', size: 240_000 }],
+    attachmentLimit: 15 * 1024 * 1024,
     updatedAt: new Date().toISOString(),
     sentAt: null,
   },
@@ -238,6 +239,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
         version: 1,
         warnings: [],
         attachments: [],
+        attachmentLimit: 15 * 1024 * 1024,
         updatedAt: new Date().toISOString(),
         sentAt: null,
       }

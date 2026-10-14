@@ -15,8 +15,7 @@ const identitiesOf = (accounts: Account[]): Identity[] =>
     ...a.aliases.map((l) => ({ address: l.address, account: a.account, label: a.label, fromName: l.fromName })),
   ])
 
-// サーバー側の上限と同じ（先に画面で止めて、大きなファイルを送り始めないようにする）
-const ATTACHMENT_MAX_TOTAL = 15 * 1024 * 1024
+const mb = (bytes: number) => `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`
 
 const fieldsOf = (d: Draft): Fields => ({
   account: d.account,
@@ -146,13 +145,14 @@ export function Compose(props: {
   const attach = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     const list = [...files]
-    const current = draft?.attachments.reduce((sum, a) => sum + a.size, 0) ?? 0
-    if (current + list.reduce((sum, f) => sum + f.size, 0) > ATTACHMENT_MAX_TOTAL) {
-      setError(`添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
-      return
-    }
     const base = dirty || !draft ? await save() : draft
     if (!base) return
+    // 差出人ごとの上限（サーバーと同じ値）。大きなファイルを送り始める前に止める
+    const current = base.attachments.reduce((sum, a) => sum + a.size, 0)
+    if (current + list.reduce((sum, f) => sum + f.size, 0) > base.attachmentLimit) {
+      setError(`${base.from} から送るメールの添付は合計 ${mb(base.attachmentLimit)} までです`)
+      return
+    }
     setStatus('attaching')
     setError(null)
     try {
@@ -207,6 +207,7 @@ export function Compose(props: {
     if (i) setFields((f) => (f ? { ...f, from: i.address, account: i.account } : f))
   }
   const busy = status !== 'idle'
+  const attachmentTotal = draft?.attachments.reduce((sum, a) => sum + a.size, 0) ?? 0
   const recipients = fields ? [fields.to, fields.cc, fields.bcc].join('').trim() : ''
 
   return (
@@ -291,6 +292,13 @@ export function Compose(props: {
             <textarea ref={body} value={fields.body} onChange={set('body')} rows={14} aria-label="本文" />
 
             <section className="attachments compose-attachments" aria-label="添付ファイル">
+              {draft && attachmentTotal > draft.attachmentLimit && (
+                <p className="notice error">
+                  {draft.from} から送るメールの添付は合計 {mb(draft.attachmentLimit)} までです（今は{' '}
+                  {mb(attachmentTotal)}
+                  ）。添付を減らすか、大きなファイルは共有リンクを本文に入れてください。
+                </p>
+              )}
               {draft && draft.attachments.length > 0 && (
                 <ul>
                   {draft.attachments.map((a) => (

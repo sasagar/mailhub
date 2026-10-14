@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from '@mailhub/db'
+import { ATTACHMENT_LIMIT_SMTP, attachmentLimitFor, fmtMB } from './sending.ts'
 
 // 利用者に見せてよい理由付きの失敗（見つからない・取得に失敗した・時間切れなど）。
 // 画面の API はこれを「内部エラー」にまとめず、メッセージをそのまま返す
@@ -480,6 +481,8 @@ export type Draft = {
   // 送る前に本人に確かめてほしいこと（返信元に無い宛先など）
   warnings: string[]
   attachments: DraftAttachment[]
+  // この差出人で送れる添付の合計（自分のドメインは Email Service の上限で小さい）
+  attachmentLimit: number
   updatedAt: string
   sentAt: string | null
 }
@@ -528,6 +531,7 @@ const toDraft = (r: Record<string, any>): Draft => ({
   version: Number(r.version),
   warnings: draftWarnings(r),
   attachments: r.attachments ?? [],
+  attachmentLimit: attachmentLimitFor(r.from_address ?? r.email),
   updatedAt: r.updated_at?.toISOString(),
   sentAt: r.sent_at?.toISOString() ?? null,
 })
@@ -733,8 +737,8 @@ export async function deleteDraft(sql: Sql, id: string, by: string): Promise<voi
 
 // ---- 下書きの添付ファイル（Web 画面だけ） ----
 
-// Gmail の SMTP は 25MB まで。base64 にすると 4/3 倍になり、agentic-inbox へは JSON で渡すので、余裕を見て合計 15MB
-export const ATTACHMENT_MAX_TOTAL = 15 * 1024 * 1024
+// 1 回に受け取る大きさの上限（差出人ごとの上限は attachmentLimitFor。こちらはそのうち大きいほう）
+export const ATTACHMENT_MAX_TOTAL = ATTACHMENT_LIMIT_SMTP
 export const ATTACHMENT_MAX_COUNT = 20
 
 // ファイル名と種類を整える。パスの区切り・制御文字・bidi の文字は落とす（受け取った側で別の拡張子に見せかけないように）
@@ -758,7 +762,7 @@ const lockDraftForAttachment = (tx: TransactionSql, draftId: string, by: string)
     update drafts set version = version + 1, updated_at = now(), updated_by = ${by},
       agent_touched = agent_touched or ${agent}
     where id = ${draftId} and status in ('draft', 'failed') ${agent ? tx`and created_by like 'mcp:%'` : tx``}
-    returning id`
+    returning id, coalesce(from_address, (select email from accounts a where a.id = account_id)) as sender`
 }
 const attachmentDenied = (by: string, verb: string) =>
   by.startsWith('mcp:')
@@ -779,8 +783,14 @@ export async function addDraftAttachment(
     const [t] = await tx`
       select count(*)::int as n, coalesce(sum(size), 0)::bigint as total from draft_attachments where draft_id = ${draftId}`
     if (t!.n >= ATTACHMENT_MAX_COUNT) throw new UserError(`添付は ${ATTACHMENT_MAX_COUNT} 個までです`)
-    if (Number(t!.total) + file.content.byteLength > ATTACHMENT_MAX_TOTAL) {
-      throw new UserError(`添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
+    const limit = attachmentLimitFor(d.sender)
+    if (Number(t!.total) + file.content.byteLength > limit) {
+      throw new UserError(
+        `${d.sender} から送るメールの添付は合計 ${fmtMB(limit)} までです` +
+          (limit < ATTACHMENT_LIMIT_SMTP
+            ? '（自分のドメインの送信サービスの上限）。大きなファイルは共有リンクを本文に入れてください'
+            : ''),
+      )
     }
     await tx`
       insert into draft_attachments (draft_id, filename, mime_type, size, content)

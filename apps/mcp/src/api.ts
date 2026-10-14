@@ -76,12 +76,19 @@ const ArchiveBody = z.union([
   }),
 ])
 
+// エージェントが 1 回に動かせるメールの上限（server.ts の MCP ツールと同じ）
+const AGENT_MAX_MESSAGES = 500
+
 async function route(request: Request, env: Env, sql: Sql, props: Props): Promise<Response> {
   const url = new URL(request.url)
   const q = url.searchParams
   const need = (scope: Scope) => {
     if (!props.scopes.includes(scope)) throw new HttpError(403, `${scope} の権限がありません`)
   }
+  // 操作した人。mail.send を持つのは Web 画面のトークンだけなので、それ以外（エージェントに発行した OAuth の
+  // トークンでこの API を直接叩いたもの）はエージェントとして扱う。本人の下書きに手を出させず、
+  // エージェント向けの上限（1 回 500 通・1 時間 3000 通）も同じようにかける
+  const actor = () => requester(props.scopes.includes('mail.send') ? 'web' : 'mcp', props)
 
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}overview`) {
     need('mail.read')
@@ -115,7 +122,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
         query,
         account: q.get('account') ?? undefined,
         maxResults: Math.min(Number(q.get('limit') ?? 50) || 50, 200),
-        requestedBy: requester('web', props),
+        requestedBy: actor(),
       }),
     )
   }
@@ -133,7 +140,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
           ? { account: q.get('account')!, mailbox: q.get('mailbox')!, uid }
           : null
     if (!ref) throw new HttpError(400, 'id か、account・mailbox・uid を指定してください')
-    const by = requester('web', props)
+    const by = actor()
     if (url.pathname === `${API_PREFIX}thread`) return json(await getThread(sql, ref, by))
     if (url.pathname === `${API_PREFIX}attachment`) {
       const index = Number(q.get('index'))
@@ -172,7 +179,11 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       .object({ message_ids: z.array(numericId).min(1).max(2000) })
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
-    return json(await enqueueMarkSeen(sql, { messageIds: body.data.message_ids, requestedBy: requester('web', props) }))
+    const requestedBy = actor()
+    if (requestedBy.startsWith('mcp:') && body.data.message_ids.length > AGENT_MAX_MESSAGES) {
+      throw new HttpError(400, `1 回に既読にできるのは ${AGENT_MAX_MESSAGES} 通までです`)
+    }
+    return json(await enqueueMarkSeen(sql, { messageIds: body.data.message_ids, requestedBy }))
   }
   // 下書き。送信だけは mail.send（Web 画面だけに与える権限）が要る
   if (url.pathname === `${API_PREFIX}drafts`) {
@@ -203,14 +214,14 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
           from: d.from,
           replyTo,
           replyAll: d.reply_all,
-          createdBy: requester('web', props),
+          createdBy: actor(),
         }),
       )
     }
     if (!d.id) throw new HttpError(400, 'id を指定してください')
-    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d, requester('web', props)))
+    if (request.method === 'PATCH') return json(await updateDraft(sql, d.id, d, actor()))
     if (request.method === 'DELETE') {
-      await deleteDraft(sql, d.id, requester('web', props))
+      await deleteDraft(sql, d.id, actor())
       return json({ deleted: d.id })
     }
   }
@@ -233,7 +244,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       })
     }
     need('mail.triage')
-    const by = requester('web', props)
+    const by = actor()
     if (request.method === 'POST') {
       if (Number(request.headers.get('Content-Length') ?? 0) > ATTACHMENT_MAX_TOTAL) {
         throw new HttpError(413, `添付は合計 ${ATTACHMENT_MAX_TOTAL / 1024 / 1024}MB までです`)
@@ -257,7 +268,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       .object({ id: numericId, version: z.number().int().positive() })
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, 'id と version を指定してください')
-    return json(await sendDraftNow(sql, body.data.id, body.data.version, requester('web', props)))
+    return json(await sendDraftNow(sql, body.data.id, body.data.version, actor()))
   }
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}operations`) {
     need('mail.read')
@@ -277,7 +288,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       ])
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
-    const requestedBy = requester('web', props)
+    const requestedBy = actor()
     if ('all' in body.data) return json(await enqueueEmptyJunk(sql, { account: body.data.account, requestedBy }))
     return json(
       await enqueueArchive(sql, { messageIds: body.data.message_ids, markSeen: false, requestedBy, action: 'delete' }),
@@ -289,8 +300,13 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     const parsed = ArchiveBody.safeParse(raw)
     const action = MoveAction.safeParse(raw?.action)
     if (!parsed.success || !action.success) throw new HttpError(400, '本文の形式が正しくありません')
-    const requestedBy = requester('web', props)
+    const requestedBy = actor()
     const body = parsed.data
+    // エージェントのトークンには、MCP のツールと同じ 1 回 500 通の上限をかける
+    const agent = requestedBy.startsWith('mcp:')
+    if (agent && 'message_ids' in body && body.message_ids.length > AGENT_MAX_MESSAGES) {
+      throw new HttpError(400, `1 回に動かせるのは ${AGENT_MAX_MESSAGES} 通までです`)
+    }
     if ('message_ids' in body) {
       return json(
         await enqueueArchive(sql, {
@@ -309,6 +325,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
         markSeen: body.mark_read,
         requestedBy,
         action: action.data,
+        ...(agent ? { maxMessages: AGENT_MAX_MESSAGES } : {}),
       }),
     )
   }
