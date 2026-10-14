@@ -11,13 +11,20 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
+// 同意フォームを送ったら、ボタンを止めて「移動しています」と出す。Access のログイン画面に移るまで数秒かかり、
+// その間に押し直すと、使い終わった CSRF トークンで 2 回目が送られて失敗するため。
+// スクリプトは CSP でハッシュを指定したこの 1 本だけを許す（中身を変えたら CONSENT_SCRIPT_HASH も直す。テストで確かめる）
+export const CONSENT_SCRIPT =
+  "document.querySelector('form').addEventListener('submit',function(e){var b=this.querySelector('button[type=submit]');if(b.disabled){e.preventDefault();return}b.disabled=true;b.classList.add('busy');b.textContent='Cloudflare Access に移動しています…'})"
+export const CONSENT_SCRIPT_HASH = 'sha256-hwC7mhrvEt8fUpA8NjVsJQ8llr9bbRaZxR6h4qtqnY0='
+
 // formActionOrigins: 同意フォームの送信後にリダイレクトする先。Chrome は form-action をリダイレクト先にも
 // 適用するので、Access のログイン画面を入れないと送信後に画面が止まる（送信自体はサーバーで処理済みになる）
 export function securityHeaders(formActionOrigins: string[], extra: HeadersInit = {}): Headers {
   const headers = new Headers(extra)
   headers.set(
     'Content-Security-Policy',
-    `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${formActionOrigins.join(' ')}; frame-ancestors 'none'; base-uri 'none'`,
+    `default-src 'none'; script-src '${CONSENT_SCRIPT_HASH}'; style-src 'unsafe-inline'; form-action 'self' ${formActionOrigins.join(' ')}; frame-ancestors 'none'; base-uri 'none'`,
   )
   headers.set('X-Frame-Options', 'DENY')
   headers.set('X-Content-Type-Options', 'nosniff')
@@ -63,7 +70,11 @@ export function renderConsent(opts: {
   body { max-width: 34rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
   label { display: block; padding: .6rem .8rem; border: 1px solid #8884; border-radius: .5rem; margin: .5rem 0; }
   label.off { opacity: .6; } label span { opacity: .75; font-size: .9em; }
-  button { font-size: 1rem; padding: .6rem 1.4rem; border-radius: .5rem; border: 0; background: #2563eb; color: #fff; }
+  button { font-size: 1rem; padding: .6rem 1.4rem; border-radius: .5rem; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+  button.busy { opacity: .7; cursor: progress; }
+  button.busy::before { content: ''; display: inline-block; width: .9em; height: .9em; margin-right: .5em; vertical-align: -.1em;
+    border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   code { font-size: .85em; word-break: break-all; }
   .dest { font-size: 1.1em; padding: .6rem .8rem; border-radius: .5rem; background: #2563eb18; }
   .dest b { font-size: 1.15em; } .warn { color: #dc2626; font-weight: 600; } .dest.warn { background: #dc262618; }
@@ -77,5 +88,6 @@ ${destination}
   <p>次へ進むと Cloudflare Access でログインします。</p>
   <button type="submit">許可してログイン</button>
 </form>
+<script>${CONSENT_SCRIPT}</script>
 </body></html>`
 }
