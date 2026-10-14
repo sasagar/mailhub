@@ -7,3 +7,6 @@ node_modules/
 docs/handoff.md
 dist/
 .playwright-mcp/
+
+# 個人のアカウント一覧（deploy/scripts/register-accounts.sh が読む）
+deploy/scripts/accounts.local

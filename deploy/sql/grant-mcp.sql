@@ -23,8 +23,14 @@ grant select, insert on requests to mailhub_mcp;
 grant usage on sequence requests_id_seq to mailhub_mcp;
 grant select on message_bodies to mailhub_mcp;
 
--- 下書きを作り・直し・消す。送信は requests に kind = 'send' を積む（同期デーモンが SMTP で送る）
-grant select, insert, update, delete on drafts to mailhub_mcp;
+-- 下書きを作り・直し・消す。送信は requests に kind = 'send' を積む（同期デーモンが SMTP で送る）。
+-- 書き換えられる列は、画面とエージェントが直すものと、送信待ちにするときの状態だけ
+-- （アカウント・作成者・返信元・送信結果は書き換えさせない。状態の変え方はトリガー drafts_status_guard でも縛る）
+grant select, insert, delete on drafts to mailhub_mcp;
+grant update (
+  from_address, to_addrs, cc_addrs, bcc_addrs, subject, body_text,
+  updated_at, updated_by, version, agent_touched, status, error
+) on drafts to mailhub_mcp;
 grant usage on sequence drafts_id_seq to mailhub_mcp;
 
 -- エイリアスは読むだけ（追加・削除は同期デーモン側の CLI）

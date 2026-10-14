@@ -1,0 +1,9 @@
+# register-accounts.sh が読むアカウントの一覧の見本。accounts.local にコピーして書き換える（accounts.local は git に入れない）
+# GOOGLE の各行は「メールアドレス|表示名|差出人名」
+GOOGLE='
+you@gmail.com|you|Your Name
+'
+# アプリパスワードで登録するもの。「名前|メールアドレス|入力の手引き」
+PASSWORD_ACCOUNTS=(
+  'iCloud|you@icloud.com|種類: icloud ／ 表示名: iCloud ／ パスワード: account.apple.com で作ったアプリ用パスワード'
+)

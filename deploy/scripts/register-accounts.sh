@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 # 残りのアカウントを本番（k3s の同期デーモン）に登録する。Google 系（Gmail / Google Workspace）は OAuth、
 # iCloud と SoftBank はアプリパスワード。終わったら同期デーモンを再起動して反映する。
 #
-#   sh deploy/scripts/register-accounts.sh
+#   bash deploy/scripts/register-accounts.sh
 #
 # GOOGLE の各行は「メールアドレス|表示名|差出人名」。表示名は画面に出す短い名前、差出人名は送信時に相手に見える名前。
 # 登録済みのものや後回しにするものは行を消す。失敗したアカウントは飛ばして次へ進むので、あとでその行だけ残して再実行する。
@@ -14,16 +14,14 @@ cli() {
   ssh -t "$host" "sudo k3s kubectl -n mailhub exec -it deploy/mailhub-sync -- node_modules/.bin/tsx src/cli/$1"
 }
 
-GOOGLE='
-yoshidakent@gmail.com|yoshidakent|吉田健徒
-vo.parc.endless.dreamscometrue@gmail.com|vo.parc.endless.dreamscometrue|SASAGAWA Kiyoshi
-yeosseun@gmail.com|yeosseun|Yeosseun
-sasapiyogames@gmail.com|sasapiyogames|ささぴよげえむず
-kent1123kent@gmail.com|kent1123kent|SASAGAWA Kiyoshi
-loverox.sasapiyo@gmail.com|loverox.sasapiyo|SASAPIYO
-boku@bktsk.com|boku|SASAGAWA Kiyoshi
-sasagawa@kent-and-co.com|sasagawa|SASAGAWA Kiyoshi
-'
+# アカウントの一覧は accounts.local から読む（個人のメールアドレスを公開リポジトリに置かない）。
+# 見本は accounts.local.example
+here=$(dirname "$0")
+if [ ! -f "$here/accounts.local" ]; then
+  echo "$here/accounts.local がありません。accounts.local.example をコピーして書き換えてください" >&2
+  exit 1
+fi
+. "$here/accounts.local"
 
 failed=''
 IFS='
@@ -43,9 +41,7 @@ for line in $GOOGLE; do
 done
 unset IFS
 
-for item in \
-  'iCloud|sasagawakent@icloud.com|種類: icloud ／ 表示名: iCloud ／ 差出人名: 相手に見せる名前 ／ ホストとポートは Enter（自動） ／ ユーザー名: Enter（アドレスのまま） ／ パスワード: account.apple.com で作ったアプリ用パスワード' \
-  'SoftBank|yoshidakent@i.softbank.jp|種類: generic ／ 表示名: SoftBank ／ 差出人名: 相手に見せる名前 ／ IMAP: imap.softbank.jp 993 ／ SMTP: smtp.softbank.jp 465 ／ ユーザー名: まず Enter（アドレスのまま）。失敗したら @ より前だけで再実行 ／ パスワード: My SoftBank の「Eメール(i)」のパスワード'; do
+for item in "${PASSWORD_ACCOUNTS[@]}"; do
   name=${item%%|*}; rest=${item#*|}; email=${rest%%|*}; hint=${rest#*|}
   printf '\n==== %s（%s）====\n%s\n\n' "$name" "$email" "$hint"
   cli add-account.ts || failed="$failed $email"
