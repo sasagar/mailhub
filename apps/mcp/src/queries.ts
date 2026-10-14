@@ -119,8 +119,11 @@ export async function senderSummary(sql: Sql, opts: { account?: string; limit: n
 // 手で頼む大きめの片付けは通り、乗っ取られて繰り返し呼ばれる使い方は止まる程度にする。Web 画面からの操作は数えない
 export const AGENT_HOURLY_LIMIT = 3000
 
+// 呼び出し側のトランザクションの中で使う。advisory lock で順番に確かめるので、同時に何本呼ばれても
+// 「まだ上限に届いていない」と全部が通ってしまうことはない（ロックはトランザクションの終わりで外れる）
 async function assertAgentBudget(sql: Sql, requestedBy: string, adding: number) {
   if (!requestedBy.startsWith('mcp:') || adding === 0) return
+  await sql`select pg_advisory_xact_lock(hashtext('mailhub:agent-budget'))`
   const [{ used }] = (await sql`
     select coalesce(sum(cardinality(uids)), 0)::int as used from operations
     where requested_by like 'mcp:%' and created_at > now() - interval '1 hour'`) as unknown as [{ used: number }]
@@ -153,10 +156,10 @@ export async function enqueueArchive(
     where m.id = any(${bigints(sql, ids)})`
   const found = new Set(rows.map((r) => String(r.id)))
   const notFound = ids.filter((id) => !found.has(id))
-  await assertAgentBudget(sql, opts.requestedBy, rows.length)
 
   const groups = Map.groupBy(rows, (r) => `${r.account_id}:${r.mailbox_id}`)
   const operations = await sql.begin(async (tx) => {
+    await assertAgentBudget(tx as unknown as Sql, opts.requestedBy, rows.length)
     const created: { operationId: string; account: string; count: number }[] = []
     for (const list of groups.values()) {
       const first = list[0]!
@@ -395,20 +398,23 @@ export async function enqueueMarkSeen(sql: Sql, opts: { messageIds: string[]; re
     select m.account_id, m.mailbox_id, m.uid
     from messages m join mailboxes b on b.id = m.mailbox_id and b.role = 'inbox'
     where m.id = any(${bigints(sql, opts.messageIds)}) and not ('\\Seen' = any(m.flags))`
-  await assertAgentBudget(sql, opts.requestedBy, rows.length)
   const groups = Map.groupBy(rows, (r) => `${r.account_id}:${r.mailbox_id}`)
-  const ids: string[] = []
-  for (const list of groups.values()) {
-    const first = list[0]!
-    const [op] = await sql`
-      insert into operations (account_id, mailbox_id, kind, uids, requested_by)
-      values (${first.account_id}, ${first.mailbox_id}, 'mark_seen', ${bigints(
-        sql,
-        list.map((r) => r.uid),
-      )}, ${opts.requestedBy})
-      returning id`
-    ids.push(String(op!.id))
-  }
+  const ids = await sql.begin(async (tx) => {
+    await assertAgentBudget(tx as unknown as Sql, opts.requestedBy, rows.length)
+    const created: string[] = []
+    for (const list of groups.values()) {
+      const first = list[0]!
+      const [op] = await tx`
+        insert into operations (account_id, mailbox_id, kind, uids, requested_by)
+        values (${first.account_id}, ${first.mailbox_id}, 'mark_seen', ${bigints(
+          tx,
+          list.map((r) => r.uid),
+        )}, ${opts.requestedBy})
+        returning id`
+      created.push(String(op!.id))
+    }
+    return created
+  })
   return { operations: ids, count: rows.length }
 }
 
