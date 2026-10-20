@@ -4,6 +4,10 @@ import type { SearchObject } from 'imapflow'
 import type { Sql } from '@mailhub/db'
 import type { Account } from './accounts.ts'
 import { sideConnection } from './imap/side.ts'
+import { imapCriteria } from './search-query.ts'
+
+// 頼んだ側（Worker）は 25 秒で待つのをやめる。それより前に、終わったアカウントの分だけでも返す
+const SEARCH_DEADLINE_MS = 20_000
 
 export type SearchHit = {
   account: string
@@ -35,7 +39,10 @@ export async function runSearchRequest(sql: Sql, accounts: Account[], id: string
   const started = Date.now()
   try {
     if (targets.length === 0) throw new Error('検索できるアカウントがありません')
-    const perAccount = await Promise.allSettled(targets.map((a) => searchAccount(sql, a, req.query, req.max_results)))
+    const timer = AbortSignal.timeout(SEARCH_DEADLINE_MS)
+    const perAccount = await Promise.allSettled(
+      targets.map((a) => withDeadline(searchAccount(sql, a, req.query, req.max_results, timer), timer)),
+    )
     const hits = perAccount
       .flatMap((r) => (r.status === 'fulfilled' ? r.value.hits : []))
       .sort((a, b) => (b.receivedAt ?? '').localeCompare(a.receivedAt ?? ''))
@@ -57,7 +64,18 @@ export async function runSearchRequest(sql: Sql, accounts: Account[], id: string
   }
 }
 
-async function searchAccount(sql: Sql, account: Account, query: string, max: number) {
+// 時間切れのアカウントは結果なし（totals に理由を出す）。走っている検索は接続ごと切って止まる
+function withDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () =>
+      reject(new Error(`${SEARCH_DEADLINE_MS / 1000} 秒以内に終わらなかったので、このアカウントは結果なし`))
+    if (signal.aborted) return onAbort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+async function searchAccount(sql: Sql, account: Account, query: string, max: number, signal: AbortSignal) {
   const boxes = await sql`
     select id, path, role from mailboxes
     where account_id = ${account.id} and role in ('inbox', 'archive', 'all')`
@@ -67,10 +85,8 @@ async function searchAccount(sql: Sql, account: Account, query: string, max: num
   if (targets.length === 0) throw new Error(`${account.email}: 検索するフォルダが見つかりません`)
   const inboxId: number | undefined = boxes.find((b) => b.role === 'inbox')?.id
 
-  // Gmail は Gmail の検索式（本文も対象）。ほかは件名・差出人・本文のどれかに含むもの
-  const criteria: SearchObject = gmail
-    ? { gmraw: query }
-    : { or: [{ subject: query }, { from: query }, { body: query }] }
+  // Gmail は Gmail の検索式（本文も対象）。ほかは from:・after: などを IMAP の条件に直し、語句は件名・差出人・本文のどれかに含むもの
+  const criteria: SearchObject = gmail ? { gmraw: query } : imapCriteria(query)
 
   return sideConnection(account).run(async (client) => {
     const found: Found[] = []
@@ -118,7 +134,7 @@ async function searchAccount(sql: Sql, account: Account, query: string, max: num
     }
     await attachInboxIds(sql, inboxId, found)
     return { hits: found.map((f) => f.hit), matched }
-  })
+  }, signal)
 }
 
 // 結果 1 件と、受信トレイの ID を引くための手掛かり

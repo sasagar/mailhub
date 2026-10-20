@@ -133,8 +133,9 @@ function createServer(sql: Sql, props: Props) {
         description:
           '受信トレイだけでなく、アーカイブ済みを含むすべてのメールをメールサーバー側で検索する（本文も対象）。新しい順に返す。' +
           'Gmail のアカウントは Gmail の検索式がそのまま使える（例: from:amazon.co.jp after:2024/01/01 has:attachment、' +
-          'subject:請求書、"完全一致の語句"、label:xxx、in:sent）。Gmail 以外は語句が件名・差出人・本文のどれかに含まれるものを探す。' +
-          '1 回に数秒かかる。結果の messageId が null でないものは受信トレイにあり、archive_messages にそのまま渡せる。',
+          'subject:請求書、"完全一致の語句"、label:xxx、in:sent）。Gmail 以外は from:・to:・cc:・subject:・after:・before: と語句（件名・差出人・本文のどれかに含む）だけが使え、' +
+          'OR・かっこ・除外・has: などはそのアカウントだけエラーになる。1 回に数秒かかる。20 秒で終わらなかったアカウントは結果なしで、totals の error に理由が出る' +
+          '（全アカウントより account を指定し、期間を区切ると速い）。結果の messageId が null でないものは受信トレイにあり、archive_messages にそのまま渡せる。',
         inputSchema: {
           query: z.string().min(1).max(500).describe('検索語。Gmail なら Gmail の検索式'),
           account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),

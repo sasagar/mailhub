@@ -23,13 +23,11 @@ await sql.listen('mailhub_operations', (payload) => {
   workers.find((w) => w.accountId === Number(payload))?.notifyOperations()
 })
 
-// 検索の依頼（payload は依頼の ID）。サーバーに負担をかけないよう 1 件ずつ順に流す
+// 検索の依頼（payload は依頼の ID）。すぐに始める。アカウントごとの補助の接続が 1 件ずつ順に流すので、
+// メールサーバーへの負担は増えない（全体を 1 列にすると、遅い検索 1 つで後ろが全部待たされる）
 const log = (msg: string) => console.log(`${new Date().toLocaleTimeString('ja-JP', { hour12: false })} ${msg}`)
-let searches = Promise.resolve()
 const enqueueSearch = (id: string) => {
-  searches = searches
-    .then(() => runSearchRequest(sql, accounts, id, log))
-    .catch((err: Error) => log(`検索失敗: ${err.message}`))
+  runSearchRequest(sql, accounts, id, log).catch((err: Error) => log(`検索失敗: ${err.message}`))
 }
 // 止まっている間に積まれた依頼は、頼んだ側がもう待っていないので失敗にする
 await sql`update search_requests set status = 'failed', error = '同期デーモンが止まっていました', finished_at = now()

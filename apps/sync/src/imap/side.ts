@@ -14,13 +14,22 @@ class SideConnection {
 
   constructor(private readonly account: Account) {}
 
-  // 1 本の接続でコマンドを重ねられないので、順に流す
-  run<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+  // 1 本の接続でコマンドを重ねられないので、順に流す。
+  // signal が切れたら、順番待ちのものは始めずに、実行中のものは接続ごと切って止める（後ろが詰まらないように）
+  run<T>(fn: (client: ImapFlow) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const next = this.chain.then(async () => {
       if (this.idle) clearTimeout(this.idle)
+      signal?.throwIfAborted()
+      const client = await this.connected()
+      const abort = () => {
+        if (this.client === client) this.client = null
+        client.close()
+      }
+      signal?.addEventListener('abort', abort, { once: true })
       try {
-        return await fn(await this.connected())
+        return await fn(client)
       } finally {
+        signal?.removeEventListener('abort', abort)
         this.idle = setTimeout(() => void this.close(), IDLE_CLOSE_MS)
       }
     })
