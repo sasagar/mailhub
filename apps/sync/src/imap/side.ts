@@ -1,11 +1,12 @@
 // 同期とは別の、アカウントごとの補助の IMAP 接続。検索や本文の取得に使う。
 // 同期用の接続は INBOX を IDLE で見張っているので、フォルダを切り替える用事はこちらでする。
-// 使うたびに繋ぎ直すと 1〜2 秒かかるので持ち続け、しばらく使わなければ閉じる
+// 使うたびに繋ぎ直すと 1〜2 秒、Gmail が混んでいると 30 秒以上かかる（検索の 20 秒を超える）ので持ち続け、
+// しばらく使わなければ閉じる。続けて検索するときに繋ぎ直さないよう、長めに持つ
 import type { ImapFlow } from 'imapflow'
 import type { Account } from '../accounts.ts'
 import { imapClientFor } from './client.ts'
 
-const IDLE_CLOSE_MS = 2 * 60_000
+const IDLE_CLOSE_MS = 10 * 60_000
 
 class SideConnection {
   private client: ImapFlow | null = null
