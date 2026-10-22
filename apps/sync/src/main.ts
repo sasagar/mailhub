@@ -34,12 +34,10 @@ await sql`update search_requests set status = 'failed', error = '同期デーモ
   where status in ('queued', 'running')`
 await sql.listen('mailhub_search', (payload) => enqueueSearch(payload))
 
-// 本文の取得などの依頼（payload は依頼の ID）。開いた人が待っているので検索とは別の列で流す
-let requests = Promise.resolve()
+// 本文の取得などの依頼（payload は依頼の ID）。開いた人が待っているので、検索と同じくすぐに始める
+// （全体を 1 列にすると、Gmail が遅いアカウントの取得 1 つで、ほかのアカウントの本文まで待たされる）
 const enqueueRequest = (id: string) => {
-  requests = requests
-    .then(() => runRequest(sql, accounts, id, log))
-    .catch((err: Error) => log(`依頼失敗: ${err.message}`))
+  runRequest(sql, accounts, id, log).catch((err: Error) => log(`依頼失敗: ${err.message}`))
 }
 await sql`update requests set status = 'failed', error = '同期デーモンが止まっていました', finished_at = now()
   where status in ('queued', 'running')`
