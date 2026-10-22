@@ -1,6 +1,7 @@
 # ベースイメージはダイジェストで固定する（タグの付け替えで中身が変わらないように）。更新するときはダイジェストごと差し替える
-FROM node:24.22.1-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
-RUN corepack enable
+FROM node:26.12.1-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec
+# Node 25 から corepack が同梱されないので、package.json の packageManager と同じ版の pnpm を入れる
+RUN npm install -g pnpm@10.33.0
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/db/package.json packages/db/
