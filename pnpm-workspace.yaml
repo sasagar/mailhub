@@ -2,9 +2,10 @@ packages:
   - apps/*
   - packages/*
 
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
+allowBuilds:
+  core-js-pure: false
+  esbuild: true
+  workerd: true
 
 # Vite+ の推奨: vite を Vite+ のコアに揃え、プラグイン（@cloudflare/vite-plugin）も同じものを使わせる
 overrides:
