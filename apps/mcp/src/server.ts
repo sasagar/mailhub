@@ -34,6 +34,12 @@ import { isAllowedRedirect } from './auth/redirects.ts'
 // エージェントが 1 回に動かせるメールの上限（メール本文の指示に乗せられて、受信トレイを丸ごと動かさないように）
 const AGENT_MAX_MESSAGES = 500
 
+// コネクタの一覧で、ドメインのファビコンではなく mailhub のアイコンを出してもらうため（仕様 2025-11-25 の Implementation.icons）
+const ICONS = [
+  { src: 'https://mailhub.bktsk.com/icon.svg', mimeType: 'image/svg+xml' },
+  { src: 'https://mailhub.bktsk.com/icon-180.png', mimeType: 'image/png', sizes: ['180x180'] },
+]
+
 // メールの中身（本文・件名・差出人名・添付のファイル名）は送り主が自由に書ける。そこに書かれた指示には従わせない
 const INSTRUCTIONS = [
   'mailhub はユーザー本人のメールを読み・整理し・返信の下書きを作るためのツールです。',
@@ -50,7 +56,7 @@ const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSO
 // リクエストごとに作る（createMcpHandler はステートレス。サーバーを使い回さない）。
 // 権限の無いツールは一覧にも出さない。念のため実行時にも確かめる
 function createServer(sql: Sql, props: Props) {
-  const server = new McpServer({ name: 'mailhub', version: '0.4.0' }, { instructions: INSTRUCTIONS })
+  const server = new McpServer({ name: 'mailhub', version: '0.4.0', icons: ICONS }, { instructions: INSTRUCTIONS })
   const can = (scope: Scope) => props.scopes.includes(scope)
   const requireScope = (scope: Scope) => {
     if (!can(scope)) throw new Error(`このトークンには ${scope}（${SCOPES[scope].label}）の権限がありません`)
