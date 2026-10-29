@@ -27,7 +27,16 @@ export type AccountScope = { account?: string; mode?: string }
 const inScope = (sql: Sql, s: AccountScope) =>
   sql`${s.account ? sql`and a.email = ${s.account}` : sql``} ${s.mode ? sql`and a.mode = ${s.mode}` : sql``}`
 
-export async function inboxOverview(sql: Sql) {
+// 無いモードを渡されたら、黙って 0 件を返さずに断る（エージェントの綴り違いに気づけるよう、あるモードを並べる）
+async function assertMode(sql: Sql, mode: string | undefined) {
+  if (!mode) return
+  const rows = await sql`select distinct mode from accounts where enabled order by mode`
+  const modes = rows.map((r) => r.mode as string)
+  if (!modes.includes(mode)) throw new UserError(`モード「${mode}」はありません。あるのは ${modes.join('、')} です`)
+}
+
+export async function inboxOverview(sql: Sql, opts: { mode?: string } = {}) {
+  await assertMode(sql, opts.mode)
   const aliases = await sql`select account_id, address, from_name from aliases order by address`
   const accounts = await sql`
     select a.id, a.email, a.label, a.from_name, a.mode, b.synced_at,
@@ -38,7 +47,7 @@ export async function inboxOverview(sql: Sql) {
     from accounts a
     left join mailboxes b on b.account_id = a.id and b.role = 'inbox'
     left join messages m on m.mailbox_id = b.id
-    where a.enabled
+    where a.enabled ${opts.mode ? sql`and a.mode = ${opts.mode}` : sql``}
     group by a.id, b.synced_at
     order by a.id`
   return accounts.map((a) => ({
@@ -72,6 +81,7 @@ export type ListFilter = {
 }
 
 export async function listMessages(sql: Sql, f: ListFilter) {
+  await assertMode(sql, f.mode)
   // 受信トレイ（または迷惑メールフォルダ）だけを対象にする。条件はすべて AND
   const where = sql`
     b.role = ${f.folder ?? 'inbox'} and a.enabled
@@ -103,6 +113,7 @@ export async function listMessages(sql: Sql, f: ListFilter) {
 }
 
 export async function senderSummary(sql: Sql, opts: AccountScope & { limit: number }) {
+  await assertMode(sql, opts.mode)
   const rows = await sql`
     select lower(m.from_addr -> 0 ->> 'address') as address,
       max(m.from_addr -> 0 ->> 'name') as name,
@@ -224,6 +235,7 @@ export async function enqueueArchiveBySenders(
     maxMessages?: number
   },
 ) {
+  await assertMode(sql, opts.mode)
   const addresses = [...new Set(opts.addresses.map((a) => a.toLowerCase()))]
   const rows = await sql`
     select m.id
@@ -272,6 +284,7 @@ export async function searchMail(
   opts: AccountScope & { query: string; maxResults: number; requestedBy: string },
 ): Promise<SearchResult> {
   // 絞るときは対象のアカウントを並べて渡す（null なら全アカウント）
+  await assertMode(sql, opts.mode)
   let accountIds: number[] | null = null
   if (opts.account || opts.mode) {
     const rows = await sql`select a.id from accounts a where a.enabled ${inScope(sql, opts)}`
@@ -681,10 +694,14 @@ export async function getDraft(sql: Sql, id: string): Promise<Draft> {
   return toDraft(r)
 }
 
-export async function listDrafts(sql: Sql, opts: { includeSent: boolean; limit: number }): Promise<Draft[]> {
+export async function listDrafts(
+  sql: Sql,
+  opts: { includeSent: boolean; limit: number; mode?: string },
+): Promise<Draft[]> {
+  await assertMode(sql, opts.mode)
   const rows = await sql`
     select ${draftColumns(sql)} from drafts d join accounts a on a.id = d.account_id
-    ${opts.includeSent ? sql`` : sql`where d.status <> 'sent'`}
+    where true ${opts.includeSent ? sql`` : sql`and d.status <> 'sent'`} ${opts.mode ? sql`and a.mode = ${opts.mode}` : sql``}
     order by d.updated_at desc limit ${opts.limit}`
   return rows.map(toDraft)
 }
@@ -956,6 +973,7 @@ export async function getThread(sql: Sql, ref: MessageRef, requestedBy: string):
 
 // 迷惑メールフォルダを空にする（アカウントを指定すればそのアカウントだけ）。Web 画面からだけ使う
 export async function enqueueEmptyJunk(sql: Sql, opts: AccountScope & { requestedBy: string }) {
+  await assertMode(sql, opts.mode)
   const rows = await sql`
     select m.id
     from messages m
