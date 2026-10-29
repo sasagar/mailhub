@@ -32,10 +32,12 @@ export async function runSearchRequest(sql: Sql, accounts: Account[], id: string
   const [req] = await sql`
     update search_requests set status = 'running'
     where id = ${id} and status = 'queued'
-    returning account_id, query, max_results`
+    returning account_id, account_ids, query, max_results`
   if (!req) return // 別の誰かが拾った、または既に終わっている
 
-  const targets = req.account_id == null ? accounts : accounts.filter((a) => a.id === req.account_id)
+  // account_ids（モード単位）、account_id（1 つ）、どちらも無ければ全アカウント
+  const ids: number[] | null = req.account_ids ?? (req.account_id == null ? null : [req.account_id])
+  const targets = ids == null ? accounts : accounts.filter((a) => ids.includes(a.id))
   const started = Date.now()
   try {
     if (targets.length === 0) throw new Error('検索できるアカウントがありません')

@@ -2,6 +2,8 @@ export type Alias = { address: string; fromName: string }
 export type Account = {
   account: string
   label: string
+  // 個人・仕事など。画面ではモードごとに見渡す
+  mode: string
   fromName: string
   aliases: Alias[]
   total: number

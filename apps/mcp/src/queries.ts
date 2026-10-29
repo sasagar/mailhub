@@ -22,10 +22,15 @@ export type MessageSummary = {
   unread: boolean
 }
 
+// アカウント 1 つか、モード（個人・仕事など）で絞る。どちらも無ければ全アカウント
+export type AccountScope = { account?: string; mode?: string }
+const inScope = (sql: Sql, s: AccountScope) =>
+  sql`${s.account ? sql`and a.email = ${s.account}` : sql``} ${s.mode ? sql`and a.mode = ${s.mode}` : sql``}`
+
 export async function inboxOverview(sql: Sql) {
   const aliases = await sql`select account_id, address, from_name from aliases order by address`
   const accounts = await sql`
-    select a.id, a.email, a.label, a.from_name, b.synced_at,
+    select a.id, a.email, a.label, a.from_name, a.mode, b.synced_at,
       count(m.id)::int as total,
       count(m.id) filter (where not ('\\Seen' = any(m.flags)))::int as unread,
       (select count(*)::int from messages jm join mailboxes jb on jb.id = jm.mailbox_id and jb.role = 'junk'
@@ -39,6 +44,8 @@ export async function inboxOverview(sql: Sql) {
   return accounts.map((a) => ({
     account: a.email,
     label: a.label,
+    // 個人・仕事など。画面ではモードごとに見渡す
+    mode: a.mode,
     fromName: a.from_name,
     // 送信に使えるエイリアス（差出人として選べる）
     aliases: aliases.filter((l) => l.account_id === a.id).map((l) => ({ address: l.address, fromName: l.from_name })),
@@ -54,6 +61,7 @@ export type ListFilter = {
   // 受信トレイ（既定）か迷惑メールフォルダか
   folder?: 'inbox' | 'junk'
   account?: string
+  mode?: string
   from?: string
   subject?: string
   unreadOnly?: boolean
@@ -67,7 +75,7 @@ export async function listMessages(sql: Sql, f: ListFilter) {
   // 受信トレイ（または迷惑メールフォルダ）だけを対象にする。条件はすべて AND
   const where = sql`
     b.role = ${f.folder ?? 'inbox'} and a.enabled
-    ${f.account ? sql`and a.email = ${f.account}` : sql``}
+    ${inScope(sql, f)}
     ${f.from ? sql`and (m.from_addr -> 0 ->> 'address') ilike ${'%' + f.from + '%'}` : sql``}
     ${f.subject ? sql`and m.subject ilike ${'%' + f.subject + '%'}` : sql``}
     ${f.unreadOnly ? sql`and not ('\\Seen' = any(m.flags))` : sql``}
@@ -94,7 +102,7 @@ export async function listMessages(sql: Sql, f: ListFilter) {
   return { total, offset: f.offset, messages }
 }
 
-export async function senderSummary(sql: Sql, opts: { account?: string; limit: number }) {
+export async function senderSummary(sql: Sql, opts: AccountScope & { limit: number }) {
   const rows = await sql`
     select lower(m.from_addr -> 0 ->> 'address') as address,
       max(m.from_addr -> 0 ->> 'name') as name,
@@ -102,7 +110,7 @@ export async function senderSummary(sql: Sql, opts: { account?: string; limit: n
       count(*) filter (where not ('\\Seen' = any(m.flags)))::int as unread,
       max(m.received_at) as latest
     from messages m join mailboxes b on b.id = m.mailbox_id join accounts a on a.id = m.account_id
-    where b.role = 'inbox' and a.enabled ${opts.account ? sql`and a.email = ${opts.account}` : sql``}
+    where b.role = 'inbox' and a.enabled ${inScope(sql, opts)}
     group by 1
     order by total desc
     limit ${opts.limit}`
@@ -208,6 +216,7 @@ export async function enqueueArchiveBySenders(
   opts: {
     addresses: string[]
     account?: string
+    mode?: string
     markSeen: boolean
     requestedBy: string
     action?: MoveAction
@@ -224,7 +233,7 @@ export async function enqueueArchiveBySenders(
     where lower(m.from_addr -> 0 ->> 'address') in (
       select jsonb_array_elements_text(${sql.json(addresses)})
     )
-      ${opts.account ? sql`and a.email = ${opts.account}` : sql``}`
+      ${inScope(sql, opts)}`
   if (rows.length === 0) return { operations: [], notFound: [] }
   if (opts.maxMessages !== undefined && rows.length > opts.maxMessages) {
     throw new UserError(
@@ -260,17 +269,21 @@ export type SearchResult = {
 // メールサーバー側で検索する。Worker は IMAP に繋がらないので、依頼を積んで同期デーモンの結果を待つ
 export async function searchMail(
   sql: Sql,
-  opts: { query: string; account?: string; maxResults: number; requestedBy: string },
+  opts: AccountScope & { query: string; maxResults: number; requestedBy: string },
 ): Promise<SearchResult> {
-  let accountId: number | null = null
-  if (opts.account) {
-    const [a] = await sql`select id from accounts where email = ${opts.account} and enabled`
-    if (!a) throw new UserError(`アカウント ${opts.account} はありません`)
-    accountId = a.id
+  // 絞るときは対象のアカウントを並べて渡す（null なら全アカウント）
+  let accountIds: number[] | null = null
+  if (opts.account || opts.mode) {
+    const rows = await sql`select a.id from accounts a where a.enabled ${inScope(sql, opts)}`
+    if (rows.length === 0)
+      throw new UserError(
+        opts.account ? `アカウント ${opts.account} はありません` : `モード「${opts.mode}」のアカウントはありません`,
+      )
+    accountIds = rows.map((r) => r.id)
   }
   const [req] = await sql`
-    insert into search_requests (account_id, query, max_results, requested_by)
-    values (${accountId}, ${opts.query}, ${opts.maxResults}, ${opts.requestedBy})
+    insert into search_requests (account_ids, query, max_results, requested_by)
+    values (${accountIds}, ${opts.query}, ${opts.maxResults}, ${opts.requestedBy})
     returning id`
   const deadline = Date.now() + 25_000
   while (Date.now() < deadline) {
@@ -942,13 +955,13 @@ export async function getThread(sql: Sql, ref: MessageRef, requestedBy: string):
 }
 
 // 迷惑メールフォルダを空にする（アカウントを指定すればそのアカウントだけ）。Web 画面からだけ使う
-export async function enqueueEmptyJunk(sql: Sql, opts: { account?: string; requestedBy: string }) {
+export async function enqueueEmptyJunk(sql: Sql, opts: AccountScope & { requestedBy: string }) {
   const rows = await sql`
     select m.id
     from messages m
     join mailboxes b on b.id = m.mailbox_id and b.role = 'junk'
     join accounts a on a.id = m.account_id and a.enabled
-    ${opts.account ? sql`where a.email = ${opts.account}` : sql``}`
+    where true ${inScope(sql, opts)}`
   if (rows.length === 0) return { operations: [], notFound: [] }
   return enqueueArchive(sql, {
     messageIds: rows.map((r) => String(r.id)),

@@ -68,10 +68,16 @@ const DraftBody = z.object({
 const MoveAction = z.enum(['archive', 'spam', 'not_spam']).default('archive')
 const ArchiveBody = z.union([
   z.object({ message_ids: z.array(numericId).min(1).max(2000), mark_read: z.boolean().default(false) }),
-  z.object({ sender: z.string().min(3), account: z.string().optional(), mark_read: z.boolean().default(false) }),
+  z.object({
+    sender: z.string().min(3),
+    account: z.string().optional(),
+    mode: z.string().optional(),
+    mark_read: z.boolean().default(false),
+  }),
   z.object({
     senders: z.array(z.string().min(3)).min(1).max(200),
     account: z.string().optional(),
+    mode: z.string().optional(),
     mark_read: z.boolean().default(false),
   }),
 ])
@@ -89,6 +95,8 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
   // トークンでこの API を直接叩いたもの）はエージェントとして扱う。本人の下書きに手を出させず、
   // エージェント向けの上限（1 回 500 通・1 時間 3000 通）も同じようにかける
   const actor = () => requester(props.scopes.includes('mail.send') ? 'web' : 'mcp', props)
+  // アカウント 1 つか、モード（個人・仕事など）で絞る
+  const scope = { account: q.get('account') ?? undefined, mode: q.get('mode') ?? undefined }
 
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}overview`) {
     need('mail.read')
@@ -97,14 +105,14 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}senders`) {
     need('mail.read')
     const limit = Math.min(Number(q.get('limit') ?? 100) || 100, 500)
-    return json(await senderSummary(sql, { account: q.get('account') ?? undefined, limit }))
+    return json(await senderSummary(sql, { ...scope, limit }))
   }
   if (request.method === 'GET' && url.pathname === `${API_PREFIX}messages`) {
     need('mail.read')
     return json(
       await listMessages(sql, {
         folder: q.get('folder') === 'junk' ? 'junk' : 'inbox',
-        account: q.get('account') ?? undefined,
+        ...scope,
         from: q.get('from') ?? undefined,
         subject: q.get('subject') ?? undefined,
         unreadOnly: q.get('unread') === '1',
@@ -120,7 +128,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     return json(
       await searchMail(sql, {
         query,
-        account: q.get('account') ?? undefined,
+        ...scope,
         maxResults: Math.min(Number(q.get('limit') ?? 50) || 50, 200),
         requestedBy: actor(),
       }),
@@ -284,12 +292,14 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
     const body = z
       .union([
         z.object({ message_ids: z.array(numericId).min(1).max(5000) }),
-        z.object({ all: z.literal(true), account: z.string().optional() }),
+        z.object({ all: z.literal(true), account: z.string().optional(), mode: z.string().optional() }),
       ])
       .safeParse(await request.json().catch(() => null))
     if (!body.success) throw new HttpError(400, '本文の形式が正しくありません')
     const requestedBy = actor()
-    if ('all' in body.data) return json(await enqueueEmptyJunk(sql, { account: body.data.account, requestedBy }))
+    if ('all' in body.data) {
+      return json(await enqueueEmptyJunk(sql, { account: body.data.account, mode: body.data.mode, requestedBy }))
+    }
     return json(
       await enqueueArchive(sql, { messageIds: body.data.message_ids, markSeen: false, requestedBy, action: 'delete' }),
     )
@@ -322,6 +332,7 @@ async function route(request: Request, env: Env, sql: Sql, props: Props): Promis
       await enqueueArchiveBySenders(sql, {
         addresses,
         account: body.account,
+        mode: body.mode,
         markSeen: body.mark_read,
         requestedBy,
         action: action.data,

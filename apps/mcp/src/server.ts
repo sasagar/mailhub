@@ -70,7 +70,7 @@ function createServer(sql: Sql, props: Props) {
       'inbox_overview',
       {
         description:
-          '全アカウントの受信トレイの件数・未読数・迷惑メールフォルダの件数（junk）・最終同期時刻と、送信に使えるエイリアス（aliases）を返す。まずこれで全体を把握してから他のツールを使う。',
+          '全アカウントの受信トレイの件数・未読数・迷惑メールフォルダの件数（junk）・最終同期時刻と、送信に使えるエイリアス（aliases）、各アカウントのモード（mode。個人・仕事など）を返す。まずこれで全体を把握してから他のツールを使う。',
         annotations: { readOnlyHint: true },
       },
       async () => {
@@ -88,6 +88,10 @@ function createServer(sql: Sql, props: Props) {
         inputSchema: {
           folder: z.enum(['inbox', 'junk']).default('inbox').describe('inbox: 受信トレイ、junk: 迷惑メールフォルダ'),
           account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
+          mode: z
+            .string()
+            .optional()
+            .describe('モード（inbox_overview の mode。例: 仕事、個人）。そのモードのアカウントだけに絞る'),
           from: z.string().optional().describe('差出人アドレスの部分一致'),
           subject: z.string().optional().describe('件名の部分一致'),
           unread_only: z.boolean().optional().describe('未読だけ'),
@@ -104,6 +108,7 @@ function createServer(sql: Sql, props: Props) {
           await listMessages(sql, {
             folder: a.folder,
             account: a.account,
+            mode: a.mode,
             from: a.from,
             subject: a.subject,
             unreadOnly: a.unread_only,
@@ -123,13 +128,17 @@ function createServer(sql: Sql, props: Props) {
           '受信トレイを差出人ごとに集計し、件数の多い順に返す。まとめてアーカイブする候補（メルマガ・通知など）を探すのに使う。',
         inputSchema: {
           account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
+          mode: z
+            .string()
+            .optional()
+            .describe('モード（inbox_overview の mode。例: 仕事、個人）。そのモードのアカウントだけに絞る'),
           limit: z.number().int().min(1).max(200).default(30),
         },
         annotations: { readOnlyHint: true },
       },
       async (a) => {
         requireScope('mail.read')
-        return json(await senderSummary(sql, { account: a.account, limit: a.limit }))
+        return json(await senderSummary(sql, { account: a.account, mode: a.mode, limit: a.limit }))
       },
     )
 
@@ -145,6 +154,10 @@ function createServer(sql: Sql, props: Props) {
         inputSchema: {
           query: z.string().min(1).max(500).describe('検索語。Gmail なら Gmail の検索式'),
           account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
+          mode: z
+            .string()
+            .optional()
+            .describe('モード（inbox_overview の mode。例: 仕事、個人）。そのモードのアカウントだけに絞る'),
           max_results: z.number().int().min(1).max(200).default(30),
         },
         annotations: { readOnlyHint: true },
@@ -155,6 +168,7 @@ function createServer(sql: Sql, props: Props) {
           await searchMail(sql, {
             query: a.query,
             account: a.account,
+            mode: a.mode,
             maxResults: a.max_results,
             requestedBy: requester('mcp', props),
           }),
@@ -543,6 +557,10 @@ function createServer(sql: Sql, props: Props) {
             .max(200)
             .describe('差出人のメールアドレス（大文字小文字は区別しない）'),
           account: z.string().optional().describe('アカウントのメールアドレス。省略で全アカウント'),
+          mode: z
+            .string()
+            .optional()
+            .describe('モード（inbox_overview の mode。例: 仕事、個人）。そのモードのアカウントだけに絞る'),
           mark_read: z.boolean().default(false).describe('アーカイブの前に既読にする'),
         },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -553,6 +571,7 @@ function createServer(sql: Sql, props: Props) {
           await enqueueArchiveBySenders(sql, {
             addresses: a.senders,
             account: a.account,
+            mode: a.mode,
             markSeen: a.mark_read,
             requestedBy: requester('mcp', props),
             maxMessages: AGENT_MAX_MESSAGES,

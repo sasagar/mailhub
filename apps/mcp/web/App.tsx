@@ -6,7 +6,7 @@ import { PHASE_LABEL, useArchive, type Job } from './useArchive.ts'
 import { Compose } from './Compose.tsx'
 import { MessageView, type MessageAction } from './MessageView.tsx'
 import { Drafts, refKey, Search, Senders, Timeline } from './lists.tsx'
-import { AccountDot, accountInfos, AccountsProvider, Icon, useMedia, type IconName } from './ui.tsx'
+import { AccountDot, accountInfos, AccountsProvider, Icon, ModeSwitch, useMedia, type IconName } from './ui.tsx'
 import { useFreshness } from './useFreshness.ts'
 import { usePullToRefresh } from './usePullToRefresh.ts'
 
@@ -59,6 +59,16 @@ function SignIn({ error }: { error: string | null }) {
 }
 
 // 入力中（検索欄・作成画面）はキー操作を横取りしない
+// 選んだモード（個人・仕事など）は端末ごとに覚えておく。仕事の端末では仕事、のように使い分けられる
+const MODE_KEY = 'mailhub:mode'
+const storedMode = () => {
+  try {
+    return localStorage.getItem(MODE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 const typing = (e: KeyboardEvent) => {
   const t = e.target
   return t instanceof Element && t.closest('input, textarea, select, [contenteditable="true"]') != null
@@ -69,6 +79,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [drafts, setDrafts] = useState<Draft[] | null>(null)
   const [account, setAccount] = useState<string>('')
+  const [mode, setMode] = useState<string>(storedMode)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
   // PC は 3 列（一覧の横に本文）、タブレットは 2 列、スマホは 1 列で下にタブ
@@ -242,14 +253,30 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
   const canSend = overview?.me.scopes.includes('mail.send') ?? false
   const accounts = overview?.accounts ?? []
   const infos = useMemo(() => accountInfos(accounts), [accounts])
-  const scoped = account ? accounts.filter((a) => a.account === account) : accounts
+  // モードはアカウントの登録順に並べる。1 つしか無ければ切り替えは出さない
+  const modes = useMemo(() => [...new Set(accounts.map((a) => a.mode))], [accounts])
+  // 覚えていたモードが今は無い（名前を変えた・アカウントを外した）ときは「すべて」に戻す
+  const activeMode = modes.length > 1 && modes.includes(mode) ? mode : ''
+  const changeMode = (m: string) => {
+    setMode(m)
+    setAccount('')
+    if (wide) setOpened(null)
+    try {
+      localStorage.setItem(MODE_KEY, m)
+    } catch {
+      // 保存できなくても、このタブの間は動く
+    }
+  }
+  const inMode = activeMode ? accounts.filter((a) => a.mode === activeMode) : accounts
+  const scoped = account ? accounts.filter((a) => a.account === account) : inMode
   const total = scoped.reduce((s, a) => s + a.total, 0)
   const unread = scoped.reduce((s, a) => s + a.unread, 0)
   const junk = scoped.reduce((s, a) => s + (a.junk ?? 0), 0)
   const openDrafts = drafts?.filter((d) => d.status !== 'sent').length ?? 0
   const counts: Partial<Record<View, number>> = { timeline: unread, drafts: openDrafts, junk }
   const current = VIEWS.find((v) => v.id === view)!
-  const accountLabel = account ? (infos.get(account)?.label ?? account) : 'すべてのアカウント'
+  const allLabel = activeMode ? `${activeMode}のアカウントすべて` : 'すべてのアカウント'
+  const accountLabel = account ? (infos.get(account)?.label ?? account) : allLabel
   const lastSync = accounts
     .map((a) => a.syncedAt)
     .filter((s): s is string => s != null)
@@ -258,6 +285,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   const listProps = {
     account,
+    mode: activeMode,
     canTriage,
     archive,
     activeKey,
@@ -292,6 +320,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
                 </span>
               </button>
             </div>
+            {modes.length > 1 && <ModeSwitch modes={modes} value={activeMode} onChange={changeMode} />}
             {canTriage && (
               <button className="compose-button" onClick={() => openCompose({ blank: true })} title="新しいメール（c）">
                 <Icon name="draft" />
@@ -307,15 +336,15 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
                 </button>
               ))}
             </nav>
-            {accounts.length > 1 && (
+            {inMode.length > 1 && (
               <nav className="accounts" aria-label="アカウント">
                 <h2>アカウント</h2>
                 <button aria-current={account === '' ? 'true' : undefined} onClick={() => setAccount('')}>
                   <span className="account-dot all" aria-hidden="true" />
                   <span className="nav-label">すべて</span>
-                  <span className="nav-count quiet-count">{n(accounts.reduce((s, a) => s + a.unread, 0))}</span>
+                  <span className="nav-count quiet-count">{n(inMode.reduce((s, a) => s + a.unread, 0))}</span>
                 </button>
-                {accounts.map((a) => (
+                {inMode.map((a) => (
                   <button
                     key={a.account}
                     aria-current={account === a.account ? 'true' : undefined}
@@ -354,7 +383,7 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
             <div className="list-title">
               <h2>{current.label}</h2>
               {/* アカウントの絞り込み。スマホではサイドバーが無いので、ここで選ぶ */}
-              {!roomy && accounts.length > 1 && (
+              {!roomy && inMode.length > 1 && (
                 <label className="account-picker">
                   {account && <AccountDot account={account} />}
                   <span>{accountLabel}</span>
@@ -362,8 +391,8 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
                     <path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                   </svg>
                   <select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="アカウント">
-                    <option value="">すべてのアカウント</option>
-                    {accounts.map((a) => (
+                    <option value="">{allLabel}</option>
+                    {inMode.map((a) => (
                       <option key={a.account} value={a.account}>
                         {infos.get(a.account)?.label}（未読 {a.unread}）
                       </option>
@@ -386,6 +415,8 @@ function Inbox({ onLoggedOut }: { onLoggedOut: () => void }) {
                 </button>
               )}
             </div>
+            {/* スマホではサイドバーが無いので、モードは一覧の上で切り替える */}
+            {!roomy && modes.length > 1 && <ModeSwitch modes={modes} value={activeMode} onChange={changeMode} />}
           </header>
 
           {loadError && (

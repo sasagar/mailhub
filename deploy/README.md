@@ -65,7 +65,7 @@
 3. Pod の中で同意する（表示された URL をブラウザで開き、許可後に 127.0.0.1 へ戻されたページの URL を貼り付ける）
 
    ```sh
-   kubectl -n mailhub exec -it deploy/mailhub-sync -- node_modules/.bin/tsx src/cli/google-auth.ts --email you@gmail.com
+   kubectl -n mailhub exec -it deploy/mailhub-sync -- node_modules/.bin/tsx src/cli/google-auth.ts --email you@gmail.com [--mode 仕事]
    kubectl -n mailhub rollout restart deploy/mailhub-sync
    ```
 

@@ -11,9 +11,16 @@ export type ArchiveFn = (body: Record<string, unknown>, label: string, path?: st
 export const refKey = (ref: MessageRef) =>
   'id' in ref ? `id:${ref.id}` : `at:${ref.account}|${ref.mailbox}|${ref.uid}`
 
+// アカウントを 1 つ選んでいればそれで、なければモード（個人・仕事など）で絞る。どちらも空なら全アカウント
+type Scope = { account: string; mode: string }
+const scopeOf = (p: Scope) => (p.account ? { account: p.account } : p.mode ? { mode: p.mode } : {})
+const withScope = (q: URLSearchParams, p: Scope) => {
+  for (const [k, v] of Object.entries(scopeOf(p))) q.set(k, v)
+  return q
+}
+
 // 一覧に共通で渡すもの
-type ListProps = {
-  account: string
+type ListProps = Scope & {
   canTriage: boolean
   archive: ArchiveFn
   // 開いているメール（行を目立たせる）
@@ -113,12 +120,11 @@ export function Timeline(props: ListProps & { folder: 'inbox' | 'junk'; canDelet
 
   const query = useCallback(
     (offset: number) => {
-      const q = new URLSearchParams({ limit: '50', offset: String(offset), folder: props.folder })
-      if (props.account) q.set('account', props.account)
+      const q = withScope(new URLSearchParams({ limit: '50', offset: String(offset), folder: props.folder }), props)
       if (unreadOnly) q.set('unread', '1')
       return api<MessagePage>(`/mcp/api/messages?${q}`)
     },
-    [props.account, props.folder, unreadOnly],
+    [props.account, props.mode, props.folder, unreadOnly],
   )
 
   useEffect(() => {
@@ -160,11 +166,7 @@ export function Timeline(props: ListProps & { folder: 'inbox' | 'junk'; canDelet
   }
   const emptyJunk = async () => {
     setBusy(true)
-    await props.archive(
-      { all: true, account: props.account || undefined },
-      `迷惑メールフォルダを空にする: ${total} 通`,
-      DELETE,
-    )
+    await props.archive({ all: true, ...scopeOf(props) }, `迷惑メールフォルダを空にする: ${total} 通`, DELETE)
     setBusy(false)
   }
 
@@ -306,9 +308,9 @@ export function Senders(props: ListProps & { version: number; total: number }) {
   const { onItems, onError } = props
 
   useEffect(() => {
-    const q = props.account ? `&account=${encodeURIComponent(props.account)}` : ''
-    api<Sender[]>(`/mcp/api/senders?limit=200${q}`).then(setSenders).catch(onError)
-  }, [props.account, props.version, onError])
+    const q = withScope(new URLSearchParams({ limit: '200' }), props)
+    api<Sender[]>(`/mcp/api/senders?${q}`).then(setSenders).catch(onError)
+  }, [props.account, props.mode, props.version, onError])
   // 差出人ごとの画面では「次のメール」はたどらない
   useEffect(() => {
     onItems([])
@@ -336,7 +338,7 @@ export function Senders(props: ListProps & { version: number; total: number }) {
     await props.archive(
       {
         senders: addresses,
-        account: props.account || undefined,
+        ...scopeOf(props),
         mark_read: spam || markRead,
         action: spam ? 'spam' : 'archive',
       },
@@ -406,6 +408,7 @@ export function Senders(props: ListProps & { version: number; total: number }) {
                 <SenderDetail
                   sender={s}
                   account={props.account}
+                  mode={props.mode}
                   canTriage={props.canTriage}
                   busy={isBusy}
                   activeKey={props.activeKey}
@@ -446,6 +449,7 @@ export function Senders(props: ListProps & { version: number; total: number }) {
 function SenderDetail(props: {
   sender: Sender
   account: string
+  mode: string
   canTriage: boolean
   busy: boolean
   activeKey: string | null
@@ -457,10 +461,9 @@ function SenderDetail(props: {
   const [page, setPage] = useState<MessagePage | null>(null)
   const { onError } = props
   useEffect(() => {
-    const q = new URLSearchParams({ from: props.sender.address, limit: '8' })
-    if (props.account) q.set('account', props.account)
+    const q = withScope(new URLSearchParams({ from: props.sender.address, limit: '8' }), props)
     api<MessagePage>(`/mcp/api/messages?${q}`).then(setPage).catch(onError)
-  }, [props.sender.address, props.account, onError])
+  }, [props.sender.address, props.account, props.mode, onError])
 
   return (
     <div className="detail">
@@ -537,8 +540,7 @@ export function Search(props: ListProps & { autoFocus: boolean }) {
     setError(null)
     setSelected(new Set())
     try {
-      const params = new URLSearchParams({ q, limit: '50' })
-      if (props.account) params.set('account', props.account)
+      const params = withScope(new URLSearchParams({ q, limit: '50' }), props)
       setResult(await api<SearchResult>(`/mcp/api/search?${params}`))
     } catch (err) {
       if (err instanceof LoggedOut) props.onError(err)

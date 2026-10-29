@@ -141,3 +141,17 @@ export function useMedia(query: string): boolean {
   }, [query])
   return match
 }
+
+// モード（個人・仕事など）の切り替え。並びはアカウントの登録順で、最後に「すべて」。
+// 未読の数はメニューの受信トレイに出るので、ここには出さない（並べると窮屈で読みにくい）
+export function ModeSwitch(props: { modes: string[]; value: string; onChange: (mode: string) => void }) {
+  return (
+    <div className="mode-switch" role="group" aria-label="モード">
+      {[...props.modes, ''].map((m) => (
+        <button key={m} aria-pressed={props.value === m} onClick={() => props.onChange(m)}>
+          {m || 'すべて'}
+        </button>
+      ))}
+    </div>
+  )
+}

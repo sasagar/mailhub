@@ -58,10 +58,10 @@ let senders: Sender[] = [
 const OTHER = 6200
 // 複数のアカウントを混ぜた一覧を確かめられるよう、差出人ごとにアカウントを割り振る
 const ACCOUNTS = [
-  { account: 'me@example.com', label: 'Gmail' },
-  { account: 'work@example.co.jp', label: 'Kent&Co.' },
-  { account: 'taro@icloud.example', label: 'iCloud' },
-  { account: 'yoshida@example.com', label: 'Gmail（吉田健徒）' },
+  { account: 'me@example.com', label: 'Gmail', mode: '個人' },
+  { account: 'work@example.co.jp', label: '会社', mode: '仕事' },
+  { account: 'taro@icloud.example', label: 'iCloud', mode: '個人' },
+  { account: 'yoshida@example.com', label: 'Gmail（吉田健徒）', mode: '個人' },
 ]
 // アーカイブしたメール（見本の一覧から外す）
 const gone = new Set<string>()
@@ -125,6 +125,7 @@ export async function demoApi<T>(path: string, init: RequestInit = {}): Promise<
       accounts: ACCOUNTS.map((a, i) => ({
         account: a.account,
         label: a.label,
+        mode: a.mode,
         fromName: 'Example Taro',
         aliases: i === 0 ? [{ address: 'support@example.com', fromName: 'Example Support' }] : [],
         total: Math.round(total / (i + 1.5)),
