@@ -128,7 +128,22 @@ export async function completeLoginIfReturning(): Promise<void> {
   if (!ok) throw new Error('トークンを受け取れませんでした。もう一度ログインしてください')
 }
 
-async function refresh(): Promise<boolean> {
+// 更新トークンは使うたびに新しくなる（古いものは無効になる）。画面を開くと API を並べて呼ぶので、
+// 更新は 1 本にまとめ、同時に来た呼び出しはその結果を待つ
+let refreshing: Promise<boolean> | null = null
+function refresh(): Promise<boolean> {
+  refreshing ??= doRefresh().finally(() => {
+    refreshing = null
+  })
+  return refreshing
+}
+async function doRefresh(): Promise<boolean> {
+  // 別のタブが先に更新していれば、そちらの新しいトークンを使う
+  const latest = read<Stored>(localStorage, STORE)
+  if (latest?.refreshToken && latest.refreshToken !== memory.refreshToken) {
+    memory = latest
+    if ((latest.expiresAt ?? 0) - 60_000 > Date.now()) return true
+  }
   if (!memory.refreshToken || !memory.clientId) return false
   return token({
     grant_type: 'refresh_token',
