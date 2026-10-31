@@ -296,7 +296,7 @@ export async function searchMail(
   }
   const [req] = await sql`
     insert into search_requests (account_ids, query, max_results, requested_by)
-    values (${accountIds}, ${opts.query}, ${opts.maxResults}, ${opts.requestedBy})
+    values (${accountIds && bigints(sql, accountIds)}::int[], ${opts.query}, ${opts.maxResults}, ${opts.requestedBy})
     returning id`
   const deadline = Date.now() + 25_000
   while (Date.now() < deadline) {
