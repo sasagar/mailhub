@@ -53,14 +53,20 @@ export class SideConnection {
   private async connected(signal?: AbortSignal): Promise<ImapFlow> {
     if (this.client?.usable) return this.client
     const client = await this.connect()
-    // 繋がる前に時間切れになっていたら、その接続は使わない（呼んだ側はもう次へ進んでいる）
-    if (signal?.aborted) {
-      client.close()
-      signal.throwIfAborted()
-    }
     client.on('close', () => {
       if (this.client === client) this.client = null
     })
+    if (signal?.aborted) {
+      // 繋がる前に時間切れになった（呼んだ側はもう次へ進んでいる）。Gmail は繋ぐだけで 20 秒を超えることがあるので、
+      // 捨てずに次の依頼で使う。その間に別の接続ができていたら、そちらを使う
+      if (this.client?.usable) client.close()
+      else {
+        this.client = client
+        if (this.idle) clearTimeout(this.idle)
+        this.idle = setTimeout(() => void this.close(), IDLE_CLOSE_MS)
+      }
+      signal.throwIfAborted()
+    }
     this.client = client
     return client
   }

@@ -49,6 +49,22 @@ describe('SideConnection', () => {
     await expect(side.run(async () => 2, AbortSignal.timeout(1000))).resolves.toBe(2)
   })
 
+  it('時間切れの後に繋がった接続は、次の依頼で使う', async () => {
+    let finish!: () => void
+    const late = fakeClient()
+    let calls = 0
+    const side = new SideConnection(() => {
+      calls++
+      return new Promise<ImapFlow>((r) => (finish = () => r(late as unknown as ImapFlow)))
+    })
+    await expect(side.run(async () => 1, AbortSignal.timeout(20))).rejects.toThrow()
+    finish()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(late.closed).toBe(false)
+    await expect(side.run(async (client) => client, AbortSignal.timeout(1000))).resolves.toBe(late)
+    expect(calls).toBe(1)
+  })
+
   it('順番待ちの間に時間切れになったものは始めない', async () => {
     const { side } = setup()
     let release!: () => void
